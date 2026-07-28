@@ -273,7 +273,7 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
   const displayEmail = submission.respondent_email ?? (meta.importedRow ? 'Imported' : 'Anonymous')
 
   const allFields: FormField[] = schema?.pages.flatMap(p => p.fields) ?? []
-  const displayFields = allFields.filter(f => !LAYOUT_TYPES.includes(f.type))
+  const displayFields = allFields.filter(f => !LAYOUT_TYPES.includes(f.type) || f.type === 'section_header')
   const data = (submission.data ?? {}) as Record<string, unknown>
   const displayStatus = submission.effectiveStatus ?? submission.status
   const cfg = statusConfig[displayStatus] ?? statusConfig.draft
@@ -620,22 +620,31 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
           {displayFields.length === 0 && (
             <div className="px-5 py-8 text-center text-[13px] text-gray-400">No field definitions found for this form.</div>
           )}
-          {displayFields.map(field => (
-            <div key={field.id} className={cn('px-5 py-3 grid grid-cols-5 gap-4', editing && 'items-start')}>
-              <dt className="col-span-2 text-[13px] font-medium text-gray-500 leading-snug pt-0.5">{field.label || field.type}</dt>
-              <dd className="col-span-3">
-                {editing ? (
-                  <EditControl
-                    field={field}
-                    value={editData[field.id]}
-                    onChange={v => setEditData(d => ({ ...d, [field.id]: v }))}
-                  />
-                ) : (
-                  <span className="text-[13px] text-gray-800">{formatAnswer(field, data[field.id])}</span>
-                )}
-              </dd>
-            </div>
-          ))}
+          {displayFields.map(field => {
+            if (field.type === 'section_header') {
+              return (
+                <div key={field.id} className="px-5 py-2.5 bg-gray-50 border-t border-gray-100 first:border-t-0">
+                  <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{field.label || field.content}</h3>
+                </div>
+              )
+            }
+            return (
+              <div key={field.id} className={cn('px-5 py-3 grid grid-cols-5 gap-4', editing && 'items-start')}>
+                <dt className="col-span-2 text-[13px] font-medium text-gray-500 leading-snug pt-0.5">{field.label || field.type}</dt>
+                <dd className="col-span-3">
+                  {editing ? (
+                    <EditControl
+                      field={field}
+                      value={editData[field.id]}
+                      onChange={v => setEditData(d => ({ ...d, [field.id]: v }))}
+                    />
+                  ) : (
+                    <span className="text-[13px] text-gray-800">{formatAnswer(field, data[field.id])}</span>
+                  )}
+                </dd>
+              </div>
+            )
+          })}
         </dl>
       </div>
 
