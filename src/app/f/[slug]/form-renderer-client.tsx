@@ -22,6 +22,12 @@ interface Props {
   brandColor: string
   confirmationMessage?: string
   redirectUrl?: string
+  closesAt?: string
+  tokenExpiresAt?: string
+  periodType?: string
+  periodValue?: string
+  periodStart?: string
+  periodEnd?: string
   /** Pre-existing draft submission ID for this token, if any */
   draftId?: string
   /** Pre-filled data from the saved draft */
@@ -298,6 +304,7 @@ function deriveMode(meta: Record<string, unknown>): RendererMode {
 export function FormRenderer({
   formId, formName, schema, token, tokenId, tokenMetadata,
   respondentEmail, programName, brandColor, confirmationMessage, redirectUrl,
+  closesAt, tokenExpiresAt, periodType, periodValue, periodStart, periodEnd,
   draftId: initialDraftId, draftData, isPreview,
 }: Props) {
   const initialMode = deriveMode(tokenMetadata)
@@ -549,7 +556,27 @@ export function FormRenderer({
       <header className="bg-white border-b" style={{ borderTopWidth: 3, borderTopColor: brandColor }}>
         <div className="max-w-2xl mx-auto px-6 py-4">
           <p className="text-[12px] text-gray-400 mb-0.5">{programName}</p>
-          <h1 className="text-[18px] font-semibold text-gray-800">{formName}</h1>
+          <h1 className="text-[18px] font-semibold text-gray-800 mb-2">{formName}</h1>
+          <div className="flex flex-wrap gap-x-6 gap-y-1">
+            <span className="text-[12px] text-gray-500">
+              <span className="font-medium text-gray-600">Due: </span>
+              {closesAt
+                ? new Date(closesAt + 'T23:59:59').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                : tokenExpiresAt
+                  ? new Date(tokenExpiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                  : 'Not assigned'}
+            </span>
+            <span className="text-[12px] text-gray-500">
+              <span className="font-medium text-gray-600">Period: </span>
+              {periodValue
+                ? periodType === 'month' && periodValue.match(/^\d{4}-\d{2}$/)
+                  ? new Date(periodValue + '-02').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                  : periodValue
+                : periodStart && periodEnd
+                  ? `${new Date(periodStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${new Date(periodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                  : 'Not assigned'}
+            </span>
+          </div>
         </div>
         {totalPages > 1 && (
           <div className="h-1 bg-gray-100">

@@ -91,6 +91,12 @@ export default async function PublicFormPage({ params, searchParams }: Props) {
       brandColor={program?.brand_color ?? '#ea580c'}
       confirmationMessage={settings.confirmation_message as string | undefined}
       redirectUrl={settings.redirect_url as string | undefined}
+      closesAt={(settings.closesAt ?? settings.closes_at) as string | undefined}
+      tokenExpiresAt={tokenRow.expires_at}
+      periodType={settings.periodType as string | undefined}
+      periodValue={settings.periodValue as string | undefined}
+      periodStart={settings.periodStart as string | undefined}
+      periodEnd={settings.periodEnd as string | undefined}
       draftId={existingDraft?.id ?? undefined}
       draftData={(existingDraft?.data ?? undefined) as Record<string, unknown> | undefined}
     />
