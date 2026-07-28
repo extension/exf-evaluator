@@ -383,8 +383,7 @@ export function FormRenderer({
   }
 
   // Normal final submission
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleSubmit() {
     if (!validatePage()) { setError('Please fill in all required fields.'); return }
     setError(null)
     setSubmitting(true)
@@ -404,8 +403,7 @@ export function FormRenderer({
   }
 
   // Collaborator returning the form to owner
-  async function handleCollaboratorReturn(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleCollaboratorReturn() {
     if (!validatePage()) { setError('Please fill in all required fields.'); return }
     setError(null)
     setSubmitting(true)
@@ -544,6 +542,7 @@ export function FormRenderer({
 
   const onSubmit = isCollaboration ? handleCollaboratorReturn : handleSubmit
 
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b" style={{ borderTopWidth: 3, borderTopColor: brandColor }}>
@@ -619,7 +618,7 @@ export function FormRenderer({
         {totalPages > 1 && (
           <p className="text-[12px] text-gray-400 mb-5">Page {pageIndex + 1} of {totalPages} — {currentPage.title}</p>
         )}
-        <form onSubmit={onSubmit} noValidate>
+        <form onSubmit={e => e.preventDefault()} noValidate>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-6">
             {visibleFields.map(field => {
               const isFlagged = effectiveFlaggedIds.has(field.id)
@@ -696,7 +695,8 @@ export function FormRenderer({
               )}
               {isLastPage ? (
                 <Button
-                  type={isPreview ? 'button' : 'submit'}
+                  type="button"
+                  onClick={isPreview ? undefined : onSubmit}
                   disabled={submitting || isPreview}
                   aria-busy={submitting}
                   className="px-8"
