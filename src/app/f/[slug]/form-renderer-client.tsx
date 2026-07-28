@@ -374,6 +374,7 @@ export function FormRenderer({
   function handleNext() {
     if (!validatePage()) { setError('Please fill in all required fields before continuing.'); return }
     setError(null)
+    saveDraft()
     const skipTarget = getSkipTarget(currentPage, data)
     if (skipTarget) {
       const idx = schema.pages.findIndex(p => p.id === skipTarget)
