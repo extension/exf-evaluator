@@ -330,10 +330,11 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
     setSendingBack(false)
     if (res.ok) {
       const result = await res.json()
-      toast.success(`Feedback sent to ${result.to}`)
-      // Refresh to show feedbackSentAt
+      toast.success(`Returned to ${result.to} for editing`)
       setSubmission(s => ({
         ...s,
+        status: 'draft',
+        effectiveStatus: 'draft',
         metadata: { ...meta, reviewerComment, feedbackSentAt: new Date().toISOString(), feedbackSentBy: '' },
       } as typeof s))
     } else {
@@ -529,15 +530,15 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
         </>
       )}
 
-      {/* Reviewer comment — shown for flagged submissions (or any submission with an existing comment) */}
-      {(displayStatus === 'flagged' || reviewerComment || feedbackSentAt) && !editing && (
+      {/* Return to respondent — available to admins on any non-draft submission */}
+      {canEdit && displayStatus !== 'draft' && !editing && (
         <div className="mb-6 rounded-xl border border-amber-100 bg-amber-50 overflow-hidden">
           <div className="px-5 py-3.5 border-b border-amber-100 flex items-center gap-2">
             <MessageSquare className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-            <h2 className="text-[13px] font-semibold text-amber-800">Reviewer notes</h2>
+            <h2 className="text-[13px] font-semibold text-amber-800">Return to respondent</h2>
             {feedbackSentAt && (
               <span className="ml-auto text-[11px] text-amber-600">
-                Sent to submitter {format(new Date(feedbackSentAt), 'MMM d, yyyy')}
+                Returned {format(new Date(feedbackSentAt), 'MMM d, yyyy')}
                 {feedbackSentBy ? ` by ${feedbackSentBy}` : ''}
               </span>
             )}
@@ -546,10 +547,10 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
             <textarea
               value={reviewerComment}
               onChange={e => setReviewerComment(e.target.value)}
-              placeholder="Add notes about why this submission was flagged, what needs to be corrected, etc."
+              placeholder="Explain what needs to be corrected or completed. The respondent will receive this note along with a link to reopen and edit their submission."
               rows={4}
               className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2.5 text-[13px] text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-400 resize-y"
-              aria-label="Reviewer comment"
+              aria-label="Return comment"
             />
             <div className="flex items-center gap-2">
               <Button
@@ -571,13 +572,14 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
                   aria-busy={sendingBack}
                 >
                   <Send className="h-3 w-3" aria-hidden="true" />
-                  {sendingBack ? 'Sending…' : 'Send feedback to submitter'}
+                  {sendingBack ? 'Returning…' : 'Return for editing'}
                 </Button>
               )}
               {!submission.respondent_email && (
-                <p className="text-[12px] text-amber-600 italic">No email on file — cannot send directly</p>
+                <p className="text-[12px] text-amber-600 italic">No email on file — cannot return directly</p>
               )}
             </div>
+            <p className="text-[11px] text-amber-700">This will reopen the form link for the respondent and reset the submission to draft.</p>
           </div>
         </div>
       )}

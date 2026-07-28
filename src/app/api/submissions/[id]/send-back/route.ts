@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { sendReviewerFeedbackEmail } from '@/lib/email'
+import { sendReturnToEditEmail } from '@/lib/email'
 import type { Json } from '@/types/database'
 
 const schema = z.object({
@@ -46,10 +46,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
-  // Now fetch full details via service client for the email / metadata update.
+  // Now fetch full details via service client.
   const { data: submission, error: fetchErr } = await service
     .from('submissions')
-    .select('id, respondent_email, metadata, forms(name, program_id, programs(name))')
+    .select('id, respondent_email, metadata, token_id, forms(name, slug, program_id, programs(name))')
     .eq('id', id)
     .single()
 
@@ -60,25 +60,48 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'No email address on this submission — cannot send feedback' }, { status: 422 })
   }
 
-  const form = submission.forms as { name: string; program_id: string; programs: { name: string } | null } | null
+  const form = submission.forms as { name: string; slug: string; program_id: string; programs: { name: string } | null } | null
   const formName = form?.name ?? 'your form'
   const programName = form?.programs?.name ?? 'the program'
 
-  // Send the email
+  // Reopen the token so the respondent can edit again
+  let formLink: string | undefined
+  if (submission.token_id) {
+    const { data: tokenRow } = await service
+      .from('submission_tokens')
+      .select('token')
+      .eq('id', submission.token_id)
+      .single()
+
+    if (tokenRow) {
+      await service
+        .from('submission_tokens')
+        .update({ used_at: null })
+        .eq('id', submission.token_id)
+
+      formLink = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3002'}/f/${form?.slug}?token=${tokenRow.token}`
+    }
+  }
+
+  // Reset submission to draft so it's editable again
+  await service.from('submissions').update({ status: 'draft' }).eq('id', id)
+
+  // Send the email with the form link + comment
   try {
-    await sendReviewerFeedbackEmail({
+    await sendReturnToEditEmail({
       to: recipientEmail,
       reviewerName: user.email ?? 'A reviewer',
       formName,
       programName,
       comment,
+      formLink,
     })
   } catch (e) {
-    console.error('Failed to send reviewer feedback email:', e)
+    console.error('Failed to send return-to-edit email:', e)
     return NextResponse.json({ error: 'Failed to send email' }, { status: 500 })
   }
 
-  // Persist: save comment + feedbackSentAt in metadata
+  // Persist: save comment + returnedAt in metadata
   const existingMeta = ((submission.metadata ?? {}) as Record<string, unknown>)
   await service.from('submissions').update({
     metadata: {

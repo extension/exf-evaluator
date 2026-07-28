@@ -139,6 +139,38 @@ export async function sendCollaborationEmail(params: {
   await sendEmail(to, subject, text, html)
 }
 
+export async function sendReturnToEditEmail(params: {
+  to: string
+  reviewerName: string
+  formName: string
+  programName: string
+  comment: string
+  formLink?: string
+}): Promise<void> {
+  const { to, reviewerName, formName, programName, comment, formLink } = params
+  const subject = `Your submission for "${formName}" has been returned for editing`
+  const text = [
+    `${reviewerName} has returned your submission for "${formName}" (${programName}) with the following note:`,
+    '',
+    `"${comment}"`,
+    '',
+    formLink
+      ? `Please open the form below, make your changes, and resubmit:\n${formLink}`
+      : `Please reach out to your program coordinator to resubmit.`,
+  ].join('\n')
+  const html = `
+<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 16px;color:#111;">
+  <h2 style="font-size:20px;margin-bottom:8px;">Your submission needs attention</h2>
+  <p style="color:#555;"><strong>${reviewerName}</strong> has returned your submission for <strong>${formName}</strong> (${programName}) with the following note:</p>
+  <div style="background:#fffbeb;border-left:3px solid #f59e0b;padding:12px 16px;margin:20px 0;font-size:14px;color:#333;border-radius:4px;">
+    <em>"${comment}"</em>
+  </div>
+  <p style="color:#555;font-size:14px;">Please review the feedback, make your changes, and resubmit.</p>
+  ${formLink ? `<a href="${formLink}" style="display:inline-block;background:#ea580c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0;">Open form to edit</a><p style="font-size:12px;color:#aaa;margin-top:12px;">If the button doesn't work, copy this link: ${formLink}</p>` : ''}
+</body></html>`
+  await sendEmail(to, subject, text, html)
+}
+
 export async function sendReviewerFeedbackEmail(params: {
   to: string
   reviewerName: string
