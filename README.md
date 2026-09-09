@@ -1,108 +1,211 @@
-# Extension Pulse
+# Extension Pulse v1.0
 
-Program evaluation and reporting platform for extension education. Supports multi-program data collection, AI-powered analysis, Pulse field notes, impact dashboards, and automated report drafting.
+A program evaluation platform for university extension offices. Extension Pulse helps teams collect data from staff and community partners via token-gated forms, review submissions, generate AI-assisted summaries and narratives, and produce reports — all organized around grant award periods.
 
-## Tech Stack
+Built with [Next.js](https://nextjs.org), [Supabase](https://supabase.com), and [Claude](https://anthropic.com).
 
-- **Frontend/API**: Next.js 16 (App Router, TypeScript)
-- **Database/Auth/Storage**: Supabase (PostgreSQL, RLS, Storage)
-- **AI**: Anthropic Claude API
-- **Email**: Mailgun
-- **Hosting**: Vercel
+---
 
-## Setup
+## Features
 
-### 1. Clone and install
+- **Multi-program support** — one deployment, multiple programs, role-based access per program
+- **Token-gated forms** — invite respondents by email; no account required to fill out a form
+- **Drag-and-drop form builder** — multi-page forms with sections, conditional logic, and file attachments
+- **Submission review** — flag submissions, send feedback, delegate sections to collaborators
+- **AI summaries** — Claude-powered narrative summaries of submission data
+- **Award context** — upload grant narratives, logic models, and progress reports as grounding for AI features
+- **Pulse notes** — qualitative field notes with file attachments, imported from Google Docs
+- **Reports** — rich-text reports built from submission data, exportable to PDF
+- **Audit log** — full trail of admin actions
+
+---
+
+## Prerequisites
+
+- [Node.js](https://nodejs.org) 20 or later
+- [Supabase](https://supabase.com) account (free tier works for development)
+- [Supabase CLI](https://supabase.com/docs/guides/cli) for database migrations
+- [Anthropic API key](https://console.anthropic.com) for AI features (optional but recommended)
+- An email provider — Mailgun, Resend, SMTP, or console logging for local dev
+
+---
+
+## Local development setup
+
+### 1. Clone and install dependencies
 
 ```bash
-git clone <repo>
+git clone https://github.com/your-org/extension-pulse.git
 cd extension-pulse
 npm install
 ```
 
-### 2. Configure environment variables
+### 2. Create a Supabase project
+
+1. Go to [supabase.com](https://supabase.com) and create a new project
+2. Wait for the project to finish provisioning
+3. Go to **Project Settings → API** and copy:
+   - Project URL → `NEXT_PUBLIC_SUPABASE_URL`
+   - `anon` public key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `service_role` secret key → `SUPABASE_SERVICE_ROLE_KEY`
+
+### 3. Configure environment variables
 
 ```bash
-cp .env.local.example .env.local
+cp .env.example .env.local
 ```
 
-Fill in the values:
+Open `.env.local` and fill in at minimum:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `NEXT_PUBLIC_APP_URL` (use `http://localhost:3000` for local dev)
 
-| Variable | Description |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-only) |
-| `ANTHROPIC_API_KEY` | Anthropic API key (server-only) |
-| `MAILGUN_API_KEY` | Mailgun private API key |
-| `MAILGUN_DOMAIN` | Mailgun sending domain |
-| `MAILGUN_FROM_EMAIL` | From address, e.g. `Extension Pulse <noreply@yourdomain.com>` |
-| `NEXT_PUBLIC_APP_URL` | Public URL, e.g. `https://pulse.youruniversity.edu` |
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | (Optional) Google service account for Docs import |
-| `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | (Optional) Google service account private key |
+See `.env.example` for all options including email providers and AI.
 
-### 3. Set up Supabase
-
-Create a new Supabase project, then run migrations:
+### 4. Run database migrations
 
 ```bash
 npx supabase login
-npx supabase link --project-ref <your-project-ref>
+npx supabase link --project-ref your-project-ref
 npx supabase db push
 ```
 
-The migrations in `supabase/migrations/` create all tables, enums, indexes, RLS policies, storage buckets, and triggers in order.
+Your project ref is the part of your Supabase URL after `https://` and before `.supabase.co`.
 
-### 4. Configure Supabase Auth
+### 5. Configure Supabase Auth
 
-In the Supabase dashboard → Authentication → Settings:
-- Enable **Email** provider
-- Enable **Magic Link** (disable password sign-in if desired)
-- Set **Site URL** to your `NEXT_PUBLIC_APP_URL`
-- Add `<NEXT_PUBLIC_APP_URL>/auth/callback` to **Redirect URLs**
+In your Supabase dashboard:
 
-### 5. Create the first admin account
+1. **Authentication → URL Configuration**
+   - Site URL: `http://localhost:3000`
+   - Redirect URLs: add `http://localhost:3000/auth/callback`
 
-After deploying, sign in with your email via magic link. Then in the Supabase dashboard, manually insert a row into `program_memberships` with `role = 'super_admin'` for your user ID and any program ID. This gives you full access to create programs and invite other users from within the app.
+2. **Authentication → Email Templates** (optional but recommended)
+   - Disable the default Supabase invite email — Extension Pulse sends its own via your configured email provider
 
-### 6. Run development server
+### 6. Start the development server
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). You'll be redirected to the login page.
 
-## Database Schema
+### 7. Create your first admin user
 
-See `supabase/migrations/` for the full schema. Key tables:
+In your Supabase dashboard go to **Authentication → Users** and click **Add user → Create new user**. Use your email address. Then in the **Table Editor** open `program_memberships` and insert a row with your user ID and `role = 'super_admin'` (you'll need to create a program first, or set `program_id` to any UUID you intend to use).
 
-- `programs` — top-level program containers
-- `program_memberships` — user roles per program (`super_admin`, `program_admin`, `staff`, `viewer`)
-- `forms` — form definitions with JSONB schema
-- `submission_tokens` — time-limited unique URLs for external respondents
-- `submissions` — collected response data
-- `pulse_notes` — qualitative field notes with file attachments
-- `ai_summaries` — cached Claude-generated summaries
-- `reports` — assembled narrative reports
-- `program_narratives` — award context documents (grant narratives, logic models)
-- `import_jobs` — CSV data import pipeline
-- `audit_log` — admin action log
+Alternatively, use the Supabase SQL editor:
 
-## Architecture Notes
-
-- All AI calls go through `/api/ai/[action]` server-side routes — the Anthropic API key is never exposed to the client.
-- External respondents receive a signed token URL and do not need a Supabase account.
-- Row-Level Security is enforced at the database level for all tables.
-- PDF text extraction uses Claude Haiku via the Anthropic document API (more reliable than pdf-parse in serverless environments).
-- Each customer deployment is a separate Vercel project + Supabase project for complete data isolation.
-
-## Deployment to Vercel
-
-```bash
-npx vercel --prod
+```sql
+-- After signing up, run this to make yourself a super admin for all programs
+UPDATE auth.users SET raw_app_meta_data = raw_app_meta_data || '{"role":"super_admin"}' WHERE email = 'you@yourinstitution.edu';
 ```
 
-Add all environment variables in the Vercel project settings. Mark `SUPABASE_SERVICE_ROLE_KEY` and `ANTHROPIC_API_KEY` as sensitive (disable preview exposure).
+---
 
-Set a custom domain in Vercel project settings if the customer requires one (e.g. `pulse.theiruniversity.edu` via a CNAME).
+## Production deployment
+
+### Vercel + Supabase (recommended)
+
+This is the same stack the project was developed on. Both have generous free tiers.
+
+1. Push your code to GitHub (or GitLab/Bitbucket)
+2. Import the repository at [vercel.com/new](https://vercel.com/new)
+3. Add all environment variables from `.env.example` in the Vercel project settings
+4. Deploy
+
+For the Supabase project used in production:
+- In **Authentication → URL Configuration**, set Site URL and add your production domain to Redirect URLs
+- Run `npx supabase db push` with the production project linked
+
+### Other platforms
+
+Any platform that runs Next.js server-side rendering will work (Railway, Render, Fly.io, self-hosted). Set the environment variables and ensure:
+- The server can reach the Supabase project URL
+- `NEXT_PUBLIC_APP_URL` is set to your public domain
+
+---
+
+## Email setup
+
+Set `EMAIL_PROVIDER` in your environment to one of:
+
+| Provider | Description |
+|---|---|
+| `console` | Logs emails to stdout — default, great for local dev |
+| `mailgun` | [Mailgun](https://mailgun.com) — reliable, EU-friendly |
+| `resend` | [Resend](https://resend.com) — modern API, excellent deliverability |
+| `smtp` | Any SMTP server — SendGrid, AWS SES, Postfix, etc. |
+
+See `.env.example` for the specific variables each provider requires.
+
+> **Important:** Supabase sends its own auth emails (magic links, password resets) separately from Extension Pulse's email system. Make sure Supabase's SMTP is also configured in **Project Settings → Auth → SMTP Settings** if you want branded auth emails.
+
+---
+
+## AI features
+
+AI features require an `ANTHROPIC_API_KEY`. If the key is not set, the AI features gracefully degrade:
+- AI summary generation will return an error to the user
+- The Sidekick assistant will be unavailable
+- Award context documents can still be uploaded and will appear in the UI
+
+All AI calls use [Claude](https://anthropic.com/claude). The model used is `claude-sonnet-4-6` by default. You can change this in `src/app/api/ai/`.
+
+---
+
+## Database migrations
+
+Schema changes are managed with the Supabase CLI:
+
+```bash
+# Create a new migration
+npx supabase migration new your_migration_name
+
+# Apply pending migrations to the linked project
+npx supabase db push
+
+# Reset local database to match migrations (destructive)
+npx supabase db reset
+```
+
+Migrations live in `supabase/migrations/`. Never edit existing migration files — always add new ones.
+
+---
+
+## Project structure
+
+```
+src/
+  app/
+    (app)/          # Authenticated admin area (sidebar layout)
+    f/[slug]/       # Public token-gated form renderer
+    my/             # Respondent portal (no program membership required)
+    auth/           # Login, callback, password reset
+    api/            # All API routes (mutations)
+  lib/
+    supabase/       # createClient() and createServiceClient() helpers
+    email.ts        # Multi-provider email abstraction
+    audit.ts        # Audit log helper
+  contexts/
+    program-context.tsx   # Current program + role, shared across the admin UI
+  types/
+    forms.ts        # FormSchema, FormField, FormSettings types
+    database.ts     # Generated Supabase types
+supabase/
+  migrations/       # SQL migration files
+```
+
+---
+
+## Contributing
+
+Pull requests welcome. Please open an issue first for significant changes.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).

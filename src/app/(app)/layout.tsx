@@ -25,8 +25,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <div className="flex h-screen overflow-hidden bg-[#f7f7f8]">
         <Sidebar userEmail={user.email} />
-        <main id="main-content" className="flex-1 overflow-y-auto" tabIndex={-1}>
-          {children}
+        <main id="main-content" className="flex-1 overflow-y-auto flex flex-col" tabIndex={-1}>
+          <div className="flex-1">
+            {children}
+          </div>
+          <footer className="px-6 py-3 text-center border-t border-gray-100">
+            <p className="text-[11px] text-gray-400">
+              Extension Pulse is an open source product for Extension Foundation members.
+            </p>
+          </footer>
         </main>
       </div>
       <Toaster richColors position="bottom-right" />

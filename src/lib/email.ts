@@ -1,7 +1,77 @@
-const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY
-const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN
-const FROM_EMAIL = process.env.MAILGUN_FROM_EMAIL ?? `Extension Pulse <noreply@${MAILGUN_DOMAIN}>`
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3002'
+/**
+ * Email sending abstraction. Set EMAIL_PROVIDER to one of:
+ *   mailgun  — Mailgun REST API (MAILGUN_API_KEY + MAILGUN_DOMAIN required)
+ *   resend   — Resend API (RESEND_API_KEY required)
+ *   smtp     — Any SMTP server (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS required)
+ *   console  — Logs to stdout (default when no provider is configured; great for local dev)
+ */
+
+import nodemailer from 'nodemailer'
+
+const EMAIL_PROVIDER = process.env.EMAIL_PROVIDER ?? 'console'
+const FROM_EMAIL = process.env.EMAIL_FROM ?? 'Extension Pulse <noreply@example.com>'
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+
+// ---------------------------------------------------------------------------
+// Internal transport
+// ---------------------------------------------------------------------------
+
+async function sendRawEmail(to: string, subject: string, text: string, html: string): Promise<void> {
+  switch (EMAIL_PROVIDER) {
+    case 'mailgun': {
+      const apiKey = process.env.MAILGUN_API_KEY
+      const domain = process.env.MAILGUN_DOMAIN
+      if (!apiKey || !domain) throw new Error('MAILGUN_API_KEY and MAILGUN_DOMAIN are required for the mailgun provider')
+      const form = new FormData()
+      form.append('from', FROM_EMAIL)
+      form.append('to', to)
+      form.append('subject', subject)
+      form.append('text', text)
+      form.append('html', html)
+      const res = await fetch(`https://api.mailgun.net/v3/${domain}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Basic ${Buffer.from(`api:${apiKey}`).toString('base64')}` },
+        body: form,
+      })
+      if (!res.ok) throw new Error(`Mailgun error ${res.status}: ${await res.text()}`)
+      break
+    }
+
+    case 'resend': {
+      const apiKey = process.env.RESEND_API_KEY
+      if (!apiKey) throw new Error('RESEND_API_KEY is required for the resend provider')
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: FROM_EMAIL, to, subject, text, html }),
+      })
+      if (!res.ok) throw new Error(`Resend error ${res.status}: ${await res.text()}`)
+      break
+    }
+
+    case 'smtp': {
+      const host = process.env.SMTP_HOST
+      const port = parseInt(process.env.SMTP_PORT ?? '587', 10)
+      const user = process.env.SMTP_USER
+      const pass = process.env.SMTP_PASS
+      const secure = process.env.SMTP_SECURE === 'true'
+      if (!host) throw new Error('SMTP_HOST is required for the smtp provider')
+      const transporter = nodemailer.createTransport({ host, port, secure, auth: user ? { user, pass } : undefined })
+      await transporter.sendMail({ from: FROM_EMAIL, to, subject, text, html })
+      break
+    }
+
+    default: {
+      // 'console' or unrecognised — dev-friendly fallback
+      console.log(`\n[EMAIL - console provider]\nTo: ${to}\nSubject: ${subject}\n\n${text}\n`)
+      break
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public email functions
+// ---------------------------------------------------------------------------
 
 interface SendTokenEmailParams {
   to: string
@@ -10,18 +80,13 @@ interface SendTokenEmailParams {
   token: string
   formSlug: string
   expiresAt: string
-  accountInviteUrl?: string   // included when we're also creating their viewer account
+  accountInviteUrl?: string
 }
 
 export async function sendTokenEmail(params: SendTokenEmailParams): Promise<void> {
   const { to, formName, programName, token, formSlug, expiresAt, accountInviteUrl } = params
   const link = `${APP_URL}/f/${formSlug}?token=${token}`
   const expiry = new Date(expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-
-  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
-    console.log(`\n[EMAIL - no Mailgun key set]\nTo: ${to}\nSubject: Your form link — ${formName}\nLink: ${link}${accountInviteUrl ? `\nAccount setup: ${accountInviteUrl}` : ''}\n`)
-    return
-  }
 
   const accountTextBlock = accountInviteUrl
     ? [``, `You've also been given viewer access to ${programName} so you can track your submission. Set up your account here:`, accountInviteUrl]
@@ -59,42 +124,7 @@ export async function sendTokenEmail(params: SendTokenEmailParams): Promise<void
 </body>
 </html>`
 
-  const form = new FormData()
-  form.append('from', FROM_EMAIL)
-  form.append('to', to)
-  form.append('subject', `Your form link — ${formName}`)
-  form.append('text', text)
-  form.append('html', html)
-
-  const res = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
-    method: 'POST',
-    headers: { Authorization: `Basic ${Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64')}` },
-    body: form,
-  })
-
-  if (!res.ok) {
-    const detail = await res.text()
-    throw new Error(`Mailgun error ${res.status}: ${detail}`)
-  }
-}
-
-async function sendEmail(to: string, subject: string, text: string, html: string): Promise<void> {
-  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
-    console.log(`\n[EMAIL - no Mailgun key]\nTo: ${to}\nSubject: ${subject}\n${text}\n`)
-    return
-  }
-  const form = new FormData()
-  form.append('from', FROM_EMAIL)
-  form.append('to', to)
-  form.append('subject', subject)
-  form.append('text', text)
-  form.append('html', html)
-  const res = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
-    method: 'POST',
-    headers: { Authorization: `Basic ${Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64')}` },
-    body: form,
-  })
-  if (!res.ok) throw new Error(`Mailgun error ${res.status}: ${await res.text()}`)
+  await sendRawEmail(to, `Your form link — ${formName}`, text, html)
 }
 
 export async function sendCollaborationEmail(params: {
@@ -111,7 +141,6 @@ export async function sendCollaborationEmail(params: {
   const { to, ownerEmail, formName, programName, token, formSlug, expiresAt, comment, flaggedFieldCount } = params
   const link = `${APP_URL}/f/${formSlug}?token=${token}`
   const expiry = new Date(expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-  const subject = `${ownerEmail} needs your help with "${formName}"`
   const flagNote = flaggedFieldCount > 0
     ? `${flaggedFieldCount} question${flaggedFieldCount !== 1 ? 's are' : ' is'} specifically flagged for your response.`
     : 'Please add your responses where needed.'
@@ -136,7 +165,7 @@ export async function sendCollaborationEmail(params: {
   <p style="margin-top:20px;font-size:13px;color:#888;">Expires ${expiry}. When you submit, your responses go back to ${ownerEmail} for final review — they will make the official submission.</p>
   <p style="font-size:12px;color:#aaa;">Link: ${link}</p>
 </body></html>`
-  await sendEmail(to, subject, text, html)
+  await sendRawEmail(to, `${ownerEmail} needs your help with "${formName}"`, text, html)
 }
 
 export async function sendReturnToEditEmail(params: {
@@ -168,7 +197,7 @@ export async function sendReturnToEditEmail(params: {
   <p style="color:#555;font-size:14px;">Please review the feedback, make your changes, and resubmit.</p>
   ${formLink ? `<a href="${formLink}" style="display:inline-block;background:#ea580c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0;">Open form to edit</a><p style="font-size:12px;color:#aaa;margin-top:12px;">If the button doesn't work, copy this link: ${formLink}</p>` : ''}
 </body></html>`
-  await sendEmail(to, subject, text, html)
+  await sendRawEmail(to, subject, text, html)
 }
 
 export async function sendReviewerFeedbackEmail(params: {
@@ -196,7 +225,7 @@ export async function sendReviewerFeedbackEmail(params: {
   </div>
   <p style="font-size:13px;color:#888;">Please reach out to your program coordinator if you have questions or need to make changes.</p>
 </body></html>`
-  await sendEmail(to, subject, text, html)
+  await sendRawEmail(to, subject, text, html)
 }
 
 export async function sendInviteEmail(params: {
@@ -222,7 +251,7 @@ export async function sendInviteEmail(params: {
   <p style="margin-top:24px;font-size:13px;color:#888;">This link expires in 24 hours.</p>
   <p style="font-size:12px;color:#aaa;margin-top:8px;">If the button doesn't work, copy this link: ${inviteUrl}</p>
 </body></html>`
-  await sendEmail(to, subject, text, html)
+  await sendRawEmail(to, subject, text, html)
 }
 
 export async function sendWelcomeWithPasswordEmail(params: {
@@ -253,7 +282,7 @@ export async function sendWelcomeWithPasswordEmail(params: {
   <a href="${loginUrl}" style="display:inline-block;background:#ea580c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Sign in</a>
   <p style="margin-top:24px;font-size:13px;color:#888;">We recommend changing your password after your first sign-in.</p>
 </body></html>`
-  await sendEmail(to, subject, text, html)
+  await sendRawEmail(to, subject, text, html)
 }
 
 export async function sendPasswordResetEmail(params: {
@@ -279,7 +308,7 @@ export async function sendPasswordResetEmail(params: {
   <p style="margin-top:24px;font-size:13px;color:#888;">If you didn't request this reset, you can safely ignore this email.</p>
   <p style="font-size:12px;color:#aaa;margin-top:8px;">If the button doesn't work, copy this link: ${resetUrl}</p>
 </body></html>`
-  await sendEmail(to, subject, text, html)
+  await sendRawEmail(to, subject, text, html)
 }
 
 export async function sendReturnNotificationEmail(params: {
@@ -306,5 +335,5 @@ export async function sendReturnNotificationEmail(params: {
   <a href="${link}" style="display:inline-block;background:#ea580c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0;">Review &amp; submit</a>
   <p style="font-size:12px;color:#aaa;margin-top:16px;">Link: ${link}</p>
 </body></html>`
-  await sendEmail(to, subject, text, html)
+  await sendRawEmail(to, subject, text, html)
 }

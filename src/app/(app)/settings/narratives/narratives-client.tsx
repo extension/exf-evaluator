@@ -14,12 +14,13 @@ import { cn } from '@/lib/utils'
 
 // Supported document types
 const DOC_TYPES = [
-  { value: 'narrative',     label: 'Grant Narrative' },
-  { value: 'logic_model',   label: 'Logic Model' },
-  { value: 'continuation',  label: 'Continuation Document' },
-  { value: 'evaluation',    label: 'Evaluation Plan' },
-  { value: 'budget',        label: 'Budget Narrative' },
-  { value: 'other',         label: 'Other' },
+  { value: 'narrative',        label: 'Grant Narrative' },
+  { value: 'logic_model',      label: 'Logic Model' },
+  { value: 'continuation',     label: 'Continuation Document' },
+  { value: 'evaluation',       label: 'Evaluation Plan' },
+  { value: 'budget',           label: 'Budget Narrative' },
+  { value: 'progress_report',  label: 'Progress Report' },
+  { value: 'other',            label: 'Other' },
 ] as const
 
 type DocTypeValue = typeof DOC_TYPES[number]['value']
@@ -29,12 +30,13 @@ function docTypeLabel(value: string): string {
 }
 
 const DOC_TYPE_COLORS: Record<string, string> = {
-  narrative:    'bg-orange-50 text-orange-700 border-orange-100',
-  logic_model:  'bg-violet-50 text-violet-700 border-violet-100',
-  continuation: 'bg-blue-50 text-blue-700 border-blue-100',
-  evaluation:   'bg-teal-50 text-teal-700 border-teal-100',
-  budget:       'bg-green-50 text-green-700 border-green-100',
-  other:        'bg-gray-50 text-gray-600 border-gray-100',
+  narrative:       'bg-orange-50 text-orange-700 border-orange-100',
+  logic_model:     'bg-violet-50 text-violet-700 border-violet-100',
+  continuation:    'bg-blue-50 text-blue-700 border-blue-100',
+  evaluation:      'bg-teal-50 text-teal-700 border-teal-100',
+  budget:          'bg-green-50 text-green-700 border-green-100',
+  progress_report: 'bg-sky-50 text-sky-700 border-sky-100',
+  other:           'bg-gray-50 text-gray-600 border-gray-100',
 }
 
 interface Document {
@@ -120,7 +122,7 @@ export function NarrativesClient() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!currentProgram) return
-    if (inputMode === 'pdf' && !file) { toast.error('Please select a PDF file'); return }
+    if (inputMode === 'pdf' && !file) { toast.error('Please select a file'); return }
     if (inputMode === 'text' && !textContent.trim()) { toast.error('Please paste the document text'); return }
 
     setSubmitting(true)
@@ -322,7 +324,7 @@ export function NarrativesClient() {
                     inputMode === 'pdf' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'
                   )}
                 >
-                  <Upload className="h-3.5 w-3.5" aria-hidden="true" /> Upload PDF
+                  <Upload className="h-3.5 w-3.5" aria-hidden="true" /> Upload file
                 </button>
                 <button
                   type="button"
@@ -350,7 +352,7 @@ export function NarrativesClient() {
                         <FileText className="h-5 w-5 text-orange-500 flex-shrink-0" aria-hidden="true" />
                         <div className="min-w-0">
                           <p className="text-[13px] font-medium text-gray-800 truncate">{file.name}</p>
-                          <p className="text-[11px] text-gray-400">{(file.size / 1024 / 1024).toFixed(1)} MB · Claude will extract the text</p>
+                          <p className="text-[11px] text-gray-400">{(file.size / 1024 / 1024).toFixed(1)} MB · Text will be extracted automatically</p>
                         </div>
                         <button type="button" onClick={e => { e.preventDefault(); setFile(null); if (fileRef.current) fileRef.current.value = '' }}
                           className="ml-auto text-gray-400 hover:text-gray-600">
@@ -361,8 +363,8 @@ export function NarrativesClient() {
                       <>
                         <Upload className="h-5 w-5 text-gray-300 flex-shrink-0" aria-hidden="true" />
                         <div>
-                          <p className="text-[13px] text-gray-600">Click to select a PDF</p>
-                          <p className="text-[11px] text-gray-400">Multi-page documents supported</p>
+                          <p className="text-[13px] text-gray-600">Click to select a file</p>
+                          <p className="text-[11px] text-gray-400">PDF, DOC, or DOCX</p>
                         </div>
                       </>
                     )}
@@ -370,10 +372,10 @@ export function NarrativesClient() {
                       id="pdf-upload"
                       ref={fileRef}
                       type="file"
-                      accept=".pdf"
+                      accept=".pdf,.doc,.docx"
                       className="sr-only"
                       onChange={e => setFile(e.target.files?.[0] ?? null)}
-                      aria-label="Upload PDF document"
+                      aria-label="Upload document"
                     />
                   </label>
                 </div>

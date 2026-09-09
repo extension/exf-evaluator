@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import Anthropic from '@anthropic-ai/sdk'
+import mammoth from 'mammoth'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { logAudit } from '@/lib/audit'
 
 const client = new Anthropic()
 
-const DOCUMENT_TYPES = ['narrative', 'logic_model', 'continuation', 'evaluation', 'budget', 'other'] as const
+const DOCUMENT_TYPES = ['narrative', 'logic_model', 'continuation', 'evaluation', 'budget', 'progress_report', 'other'] as const
 
 const createSchema = z.object({
   program_id: z.string().min(1),
@@ -15,9 +16,9 @@ const createSchema = z.object({
   document_type: z.enum(DOCUMENT_TYPES).default('narrative'),
   starts_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   ends_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  // Either a PDF as base64, or plain text pasted directly
+  // Either a PDF/DOCX as base64, or plain text pasted directly
   file_name: z.string().optional(),
-  file_base64: z.string().optional(),  // base64-encoded PDF
+  file_base64: z.string().optional(),  // base64-encoded PDF or DOCX
   text_content: z.string().optional(), // manually pasted text
 })
 
@@ -52,6 +53,12 @@ async function extractPdfText(base64: string, fileName: string): Promise<string>
   return msg.content[0].type === 'text' ? msg.content[0].text : ''
 }
 
+async function extractDocxText(base64: string): Promise<string> {
+  const buffer = Buffer.from(base64, 'base64')
+  const result = await mammoth.extractRawText({ buffer })
+  return result.value
+}
+
 export async function GET(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -84,21 +91,24 @@ export async function POST(request: Request) {
   const { program_id, title, description, document_type, starts_at, ends_at, file_name, file_base64, text_content } = parsed.data
 
   if (!file_base64 && !text_content) {
-    return NextResponse.json({ error: 'Either a PDF file or text content is required' }, { status: 400 })
+    return NextResponse.json({ error: 'Either a file or text content is required' }, { status: 400 })
   }
 
   if (ends_at < starts_at) {
     return NextResponse.json({ error: 'End date must be after start date' }, { status: 400 })
   }
 
-  // Extract content — either from PDF via Claude or use pasted text
+  // Extract content — PDF via Claude, DOCX via mammoth, or use pasted text
   let content: string
   if (file_base64 && file_name) {
+    const isDocx = /\.docx?$/i.test(file_name)
     try {
-      content = await extractPdfText(file_base64, file_name)
+      content = isDocx
+        ? await extractDocxText(file_base64)
+        : await extractPdfText(file_base64, file_name)
     } catch (e) {
-      console.error('PDF extraction failed:', e)
-      return NextResponse.json({ error: 'Failed to extract text from PDF. Try pasting the text directly.' }, { status: 500 })
+      console.error('Document extraction failed:', e)
+      return NextResponse.json({ error: 'Failed to extract text from the document. Try pasting the text directly.' }, { status: 500 })
     }
   } else {
     content = text_content!

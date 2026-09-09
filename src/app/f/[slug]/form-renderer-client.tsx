@@ -561,7 +561,7 @@ export function FormRenderer({
             <span className="text-[12px] text-gray-500">
               <span className="font-medium text-gray-600">Due: </span>
               {closesAt
-                ? new Date(closesAt + 'T23:59:59').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                ? new Date(closesAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
                 : tokenExpiresAt
                   ? new Date(tokenExpiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
                   : 'Not assigned'}

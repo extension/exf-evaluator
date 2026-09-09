@@ -1,6 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { FormRenderer } from './form-renderer-client'
-import type { FormSchema } from '@/types/forms'
+import type { FormSchema, FormSettings } from '@/types/forms'
 
 interface Props {
   params: Promise<{ slug: string }>
@@ -26,7 +26,20 @@ export default async function PublicFormPage({ params, searchParams }: Props) {
 
   const program = form.programs as { name: string; brand_color: string | null } | null
   const schema = form.schema as unknown as FormSchema
-  const settings = (form.settings as Record<string, unknown> | null) ?? {}
+  // Settings may be stored with camelCase or snake_case keys depending on when they were saved.
+  // Cast through both to be safe.
+  const s = (form.settings as Record<string, unknown> | null) ?? {}
+  const settings: FormSettings = {
+    closesAt:            (s.closesAt ?? s.closes_at) as string | undefined,
+    opensAt:             (s.opensAt  ?? s.opens_at)  as string | undefined,
+    periodType:          (s.periodType  ?? s.period_type)  as FormSettings['periodType'],
+    periodValue:         (s.periodValue ?? s.period_value) as string | undefined,
+    periodStart:         (s.periodStart ?? s.period_start) as string | undefined,
+    periodEnd:           (s.periodEnd   ?? s.period_end)   as string | undefined,
+    confirmationMessage: (s.confirmationMessage ?? s.confirmation_message) as string | undefined,
+    redirectUrl:         (s.redirectUrl ?? s.redirect_url) as string | undefined,
+    tokenExpiryDays:     (s.tokenExpiryDays ?? s.token_expiry_days) as number | undefined,
+  }
 
   // Preview mode: show the form read-only, no token required, no submissions
   if (isPreview) {
@@ -41,7 +54,7 @@ export default async function PublicFormPage({ params, searchParams }: Props) {
         respondentEmail={null}
         programName={program?.name ?? 'Extension Pulse'}
         brandColor={program?.brand_color ?? '#ea580c'}
-        confirmationMessage={settings.confirmation_message as string | undefined}
+        confirmationMessage={settings.confirmationMessage}
         redirectUrl={undefined}
         isPreview
       />
@@ -89,9 +102,9 @@ export default async function PublicFormPage({ params, searchParams }: Props) {
       respondentEmail={tokenRow.email}
       programName={program?.name ?? 'Extension Pulse'}
       brandColor={program?.brand_color ?? '#ea580c'}
-      confirmationMessage={settings.confirmation_message as string | undefined}
-      redirectUrl={settings.redirect_url as string | undefined}
-      closesAt={(settings.closesAt ?? settings.closes_at) as string | undefined}
+      confirmationMessage={settings.confirmationMessage}
+      redirectUrl={settings.redirectUrl}
+      closesAt={settings.closesAt}
       tokenExpiresAt={tokenRow.expires_at}
       periodType={settings.periodType as string | undefined}
       periodValue={settings.periodValue as string | undefined}
