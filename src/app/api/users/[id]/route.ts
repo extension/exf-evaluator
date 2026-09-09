@@ -27,6 +27,23 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .single()
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // Verify the caller has admin rights in this program
+  const { data: callerMembership } = await supabase
+    .from('program_memberships')
+    .select('role')
+    .eq('program_id', existing.program_id)
+    .eq('user_id', user.id)
+    .single()
+  const callerRole = callerMembership?.role
+  if (callerRole !== 'super_admin' && callerRole !== 'program_admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Only super_admins can assign the super_admin role
+  if ('role' in parsed.data && parsed.data.role === 'super_admin' && callerRole !== 'super_admin') {
+    return NextResponse.json({ error: 'Only super admins can assign the super_admin role' }, { status: 403 })
+  }
+
   // --- Email actions ---
   if ('action' in parsed.data) {
     const { action } = parsed.data
@@ -102,6 +119,17 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
 
   const { data: existing } = await supabase.from('program_memberships').select('program_id').eq('id', id).single()
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const { data: callerMembership } = await supabase
+    .from('program_memberships')
+    .select('role')
+    .eq('program_id', existing.program_id)
+    .eq('user_id', user.id)
+    .single()
+  const callerRole = callerMembership?.role
+  if (callerRole !== 'super_admin' && callerRole !== 'program_admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const { error } = await service.from('program_memberships').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

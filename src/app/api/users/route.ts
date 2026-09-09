@@ -72,6 +72,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Password is required in password mode' }, { status: 400 })
   }
 
+  // Verify the caller has admin rights in this program
+  const { data: callerMembership } = await supabase
+    .from('program_memberships')
+    .select('role')
+    .eq('program_id', program_id)
+    .eq('user_id', user.id)
+    .single()
+  const callerRole = callerMembership?.role
+  const callerIsAdmin = callerRole === 'super_admin' || callerRole === 'program_admin'
+  if (!callerIsAdmin) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Only super_admins can assign the super_admin role
+  if (role === 'super_admin' && callerRole !== 'super_admin') {
+    return NextResponse.json({ error: 'Only super admins can assign the super_admin role' }, { status: 403 })
+  }
+
   // Check if user already exists in auth
   const { data: { users: existing } } = await service.auth.admin.listUsers()
   let targetUserId = existing?.find(u => u.email === email)?.id

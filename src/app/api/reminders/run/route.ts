@@ -3,7 +3,15 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { sendTokenEmail } from '@/lib/email'
 import type { Json } from '@/types/database'
 
-export async function POST() {
+export async function POST(request: Request) {
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret) {
+    const auth = request.headers.get('authorization')
+    if (auth !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
   const service = createServiceClient()
 
   // Fetch all active forms
