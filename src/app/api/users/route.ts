@@ -36,14 +36,17 @@ export async function GET(request: Request) {
   const userMeta: Record<string, { email: string; email_confirmed: boolean; last_sign_in: string | null }> = {}
 
   if (userIds.length > 0) {
-    const { data: { users } } = await service.auth.admin.listUsers()
-    users?.forEach(u => {
-      userMeta[u.id] = {
-        email: u.email ?? '',
-        email_confirmed: !!u.email_confirmed_at,
-        last_sign_in: u.last_sign_in_at ?? null,
+    // Fetch each member's auth record individually to avoid listUsers() pagination limits
+    await Promise.all(userIds.map(async id => {
+      const { data: { user } } = await service.auth.admin.getUserById(id)
+      if (user) {
+        userMeta[user.id] = {
+          email: user.email ?? '',
+          email_confirmed: !!user.email_confirmed_at,
+          last_sign_in: user.last_sign_in_at ?? null,
+        }
       }
-    })
+    }))
   }
 
   const result = memberships?.map(m => ({
@@ -126,9 +129,14 @@ export async function POST(request: Request) {
       targetUserId = linkData.user.id
 
       const inviteUrl = linkData.properties.action_link
+      let emailError: string | null = null
       await sendInviteEmail({ to: email, inviteUrl, programName }).catch(err => {
         console.error('Invite email failed:', err)
+        emailError = err?.message ?? String(err)
       })
+      if (emailError) {
+        return NextResponse.json({ error: `User created but invite email failed: ${emailError}` }, { status: 500 })
+      }
     }
   }
 
