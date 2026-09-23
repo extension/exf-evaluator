@@ -9,7 +9,7 @@
 import nodemailer from 'nodemailer'
 
 const EMAIL_PROVIDER = process.env.EMAIL_PROVIDER ?? 'console'
-const FROM_EMAIL = process.env.EMAIL_FROM ?? 'Extension Pulse <noreply@example.com>'
+const FROM_EMAIL = process.env.EMAIL_FROM ?? process.env.MAILGUN_FROM_EMAIL ?? 'Extension Pulse <noreply@example.com>'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
 // ---------------------------------------------------------------------------
