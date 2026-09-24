@@ -75,35 +75,53 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Password is required in password mode' }, { status: 400 })
   }
 
-  // Verify the caller has admin rights in this program
+  // Verify the caller has admin rights: program_admin in this program OR super_admin anywhere
   const { data: callerMembership } = await supabase
     .from('program_memberships')
     .select('role')
     .eq('program_id', program_id)
     .eq('user_id', user.id)
     .single()
-  const callerRole = callerMembership?.role
-  const callerIsAdmin = callerRole === 'super_admin' || callerRole === 'program_admin'
+  const callerProgramRole = callerMembership?.role
+
+  const { data: superAdminCheck } = await supabase
+    .from('program_memberships')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('role', 'super_admin')
+    .limit(1)
+    .single()
+  const isSuperAdmin = !!superAdminCheck
+
+  const callerIsAdmin = isSuperAdmin || callerProgramRole === 'program_admin'
   if (!callerIsAdmin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   // Only super_admins can assign the super_admin role
-  if (role === 'super_admin' && callerRole !== 'super_admin') {
+  if (role === 'super_admin' && !isSuperAdmin) {
     return NextResponse.json({ error: 'Only super admins can assign the super_admin role' }, { status: 403 })
   }
-
-  // Check if user already exists in auth
-  const { data: { users: existing } } = await service.auth.admin.listUsers()
-  let targetUserId = existing?.find(u => u.email === email)?.id
 
   // Fetch program name for email copy
   const { data: program } = await supabase.from('programs').select('name').eq('id', program_id).single()
   const programName = program?.name ?? 'Extension Pulse'
   const loginUrl = `${process.env.NEXT_PUBLIC_APP_URL}/auth/login`
 
-  if (!targetUserId) {
-    if (mode === 'password') {
+  // Look up existing user by email — perPage:1000 avoids the default 50-row pagination limit
+  let targetUserId: string | undefined
+  const { data: { users: authSearch } } = await service.auth.admin.listUsers({ perPage: 1000 })
+  targetUserId = authSearch?.find(u => u.email === email)?.id
+
+  if (mode === 'password') {
+    if (targetUserId) {
+      // User already exists — update their password so they can sign in
+      const { error: updateErr } = await service.auth.admin.updateUserById(targetUserId, {
+        password: password!,
+        email_confirm: true,
+      })
+      if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+    } else {
       // Create confirmed user with a set password — Supabase sends no email
       const { data: created, error: createErr } = await service.auth.admin.createUser({
         email,
@@ -112,12 +130,13 @@ export async function POST(request: Request) {
       })
       if (createErr) return NextResponse.json({ error: createErr.message }, { status: 500 })
       targetUserId = created.user.id
+    }
 
-      // Send welcome email with credentials via Mailgun
-      await sendWelcomeWithPasswordEmail({ to: email, temporaryPassword: password!, loginUrl, programName }).catch(err => {
-        console.error('Welcome email failed:', err)
-      })
-    } else {
+    // Send welcome email with credentials
+    await sendWelcomeWithPasswordEmail({ to: email, temporaryPassword: password!, loginUrl, programName }).catch(err => {
+      console.error('Welcome email failed:', err)
+    })
+  } else if (!targetUserId) {
       // Generate an invite link and send it ourselves via Mailgun
       // (avoids Supabase's rate-limited / spam-prone built-in email)
       const { data: linkData, error: linkErr } = await service.auth.admin.generateLink({
@@ -137,7 +156,6 @@ export async function POST(request: Request) {
       if (emailError) {
         return NextResponse.json({ error: `User created but invite email failed: ${emailError}` }, { status: 500 })
       }
-    }
   }
 
   // Upsert membership
