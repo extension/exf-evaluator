@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input'
 function LoginForm() {
   const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [usePassword, setUsePassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -26,6 +28,18 @@ function LoginForm() {
     setError(null)
 
     const supabase = createClient()
+
+    if (usePassword) {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) {
+        setError(error.message)
+        setLoading(false)
+      } else {
+        window.location.href = nextUrl
+      }
+      return
+    }
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
@@ -81,6 +95,22 @@ function LoginForm() {
               className="h-10 text-[14px]"
             />
           </div>
+          {usePassword && (
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="text-[13px] font-medium text-gray-700">
+                Password
+              </label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="h-10 text-[14px]"
+              />
+            </div>
+          )}
           {error && (
             <p className="text-[13px] text-red-500">{error}</p>
           )}
@@ -89,10 +119,32 @@ function LoginForm() {
             className="w-full h-10 bg-orange-600 hover:bg-orange-700 text-[14px] font-medium shadow-sm"
             disabled={loading}
           >
-            {loading ? 'Sending…' : 'Continue with email'}
+            {loading ? 'Signing in…' : usePassword ? 'Sign in' : 'Continue with email'}
           </Button>
           <p className="text-center text-[12px] text-gray-400">
-            We&apos;ll email you a magic link — no password needed
+            {usePassword ? (
+              <>
+                Have a magic link?{' '}
+                <button
+                  type="button"
+                  onClick={() => { setUsePassword(false); setError(null) }}
+                  className="text-orange-600 hover:text-orange-700 transition-colors"
+                >
+                  Use email link instead
+                </button>
+              </>
+            ) : (
+              <>
+                Have a password?{' '}
+                <button
+                  type="button"
+                  onClick={() => { setUsePassword(true); setError(null) }}
+                  className="text-orange-600 hover:text-orange-700 transition-colors"
+                >
+                  Sign in with password
+                </button>
+              </>
+            )}
           </p>
         </form>
       )}
