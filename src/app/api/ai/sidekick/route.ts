@@ -164,13 +164,11 @@ Your role:
 - Be concise — lead with the key finding, then provide supporting detail
 - Use bullet points and short paragraphs for readability
 - If the data doesn't contain something the user asked about, say so clearly and suggest what IS available
-- When answering questions, draw on Award Context documents (annual reports, narratives, logic models) alongside submission data
 
 Data format notes:
 - Numeric fields show monthly stats: n=count, sum=total, avg=average
 - Date ranges are YYYY-MM or YYYY-MM-DD
 - "Period" labels (e.g. "Fall 2025") come from imported datasets
-- Award Context documents are full-text uploads such as annual reports, grant narratives, and logic models
 
 You are not a generic chatbot. Only discuss program evaluation topics — redirect politely if asked about unrelated things.`
 
@@ -261,26 +259,10 @@ export async function POST(request: Request) {
         }).join('\n\n')
       : ''
 
-    // Fetch Award Context narratives
-    const { data: rawNarratives } = await supabase
-      .from('program_narratives')
-      .select('title, document_type, starts_at, ends_at, content')
-      .eq('program_id', program_id)
-      .order('starts_at', { ascending: false })
-
-    const narrativesSection = (rawNarratives && rawNarratives.length > 0)
-      ? `\n\nAWARD CONTEXT DOCUMENTS (${rawNarratives.length} files):\n` +
-        rawNarratives.map(n => {
-          const period = n.starts_at && n.ends_at ? ` [${n.starts_at} – ${n.ends_at}]` : ''
-          const docType = n.document_type ?? 'document'
-          return `--- "${n.title}" (${docType})${period} ---\n${String(n.content ?? '').slice(0, 12000)}\n--- END ---`
-        }).join('\n\n')
-      : ''
-
     // Inject context as first user message preamble
     const contextMessage: Anthropic.MessageParam = {
       role: 'user',
-      content: `[DATA CONTEXT — use this to answer questions]\n\n${context}${pulseSection}${narrativesSection}\n\n[END DATA CONTEXT]`,
+      content: `[DATA CONTEXT — use this to answer questions]\n\n${context}${pulseSection}\n\n[END DATA CONTEXT]`,
     }
     const contextAck: Anthropic.MessageParam = {
       role: 'assistant',
