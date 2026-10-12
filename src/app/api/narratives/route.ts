@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import Anthropic from '@anthropic-ai/sdk'
 import mammoth from 'mammoth'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { logAudit } from '@/lib/audit'
 
 export const maxDuration = 60
+
+const client = new Anthropic()
 
 const DOCUMENT_TYPES = ['narrative', 'logic_model', 'continuation', 'evaluation', 'budget', 'progress_report', 'other'] as const
 
@@ -21,12 +24,19 @@ const createSchema = z.object({
   text_content: z.string().optional(), // manually pasted text
 })
 
-async function extractPdfText(base64: string): Promise<string> {
-  const { PDFParse } = await import('pdf-parse')
-  const buffer = Buffer.from(base64, 'base64')
-  const parser = new PDFParse({ data: buffer })
-  const result = await parser.getText()
-  return result.text
+async function extractPdfText(base64: string, fileName: string): Promise<string> {
+  const msg = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 8000,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } } as never,
+        { type: 'text', text: `Extract and return the full text content of this document (${fileName}). Preserve structure and headings. Do not summarize — return the actual content for use as AI grounding context.` },
+      ],
+    }],
+  })
+  return msg.content[0].type === 'text' ? msg.content[0].text : ''
 }
 
 async function extractDocxText(base64: string): Promise<string> {
@@ -81,7 +91,7 @@ export async function POST(request: Request) {
     try {
       content = isDocx
         ? await extractDocxText(file_base64)
-        : await extractPdfText(file_base64)
+        : await extractPdfText(file_base64, file_name)
     } catch (e) {
       console.error('Document extraction failed:', e)
       return NextResponse.json({ error: 'Failed to extract text from the document. Try pasting the text directly.' }, { status: 500 })
