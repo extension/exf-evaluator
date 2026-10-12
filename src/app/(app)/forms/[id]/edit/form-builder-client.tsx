@@ -118,6 +118,10 @@ export function FormBuilderClient({ initialForm }: Props) {
   }
 
   async function handlePublish() {
+    if (!settings.periodType) {
+      toast.error('A reporting period is required before publishing. Set it in the Settings tab.')
+      return
+    }
     await save(false)
     const res = await fetch(`/api/forms/${initialForm.id}`, {
       method: 'PUT',
