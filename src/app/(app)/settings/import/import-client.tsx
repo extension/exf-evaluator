@@ -101,10 +101,19 @@ function periodOptions(type: 'month' | 'quarter'): { value: string; label: strin
 // ---------------------------------------------------------------------------
 
 interface PeriodState {
-  periodType: 'month' | 'quarter' | ''
+  periodType: 'month' | 'quarter' | 'year' | 'custom' | ''
   periodValue: string
   periodStart: string
   periodEnd: string
+}
+
+function yearOptions(): { value: string; label: string }[] {
+  const now = new Date()
+  const options: { value: string; label: string }[] = []
+  for (let y = now.getFullYear() + 1; y >= now.getFullYear() - 10; y--) {
+    options.push({ value: String(y), label: String(y) })
+  }
+  return options
 }
 
 function PeriodPicker({ state, onChange }: {
@@ -124,13 +133,15 @@ function PeriodPicker({ state, onChange }: {
       </span>
       <select
         value={periodType}
-        onChange={e => onChange({ periodType: e.target.value as 'month' | 'quarter' | '', periodValue: '', periodStart: '', periodEnd: '' })}
+        onChange={e => onChange({ periodType: e.target.value as PeriodState['periodType'], periodValue: '', periodStart: '', periodEnd: '' })}
         className="h-7 rounded-md border border-gray-200 px-2 text-[11px] bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
         aria-label="Period type"
       >
         <option value="">None</option>
         <option value="month">Month</option>
         <option value="quarter">Quarter</option>
+        <option value="year">Year</option>
+        <option value="custom">Custom</option>
       </select>
       {periodType === 'month' && (
         <select
@@ -152,17 +163,35 @@ function PeriodPicker({ state, onChange }: {
           {periodOptions('month').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       )}
-      {periodType === 'quarter' && (
+      {periodType === 'year' && (
+        <select
+          value={periodValue}
+          onChange={e => {
+            const y = e.target.value
+            if (y) {
+              onChange({ periodType, periodValue: y, periodStart: `${y}-01-01`, periodEnd: `${y}-12-31` })
+            } else {
+              onChange({ periodType, periodValue: '', periodStart: '', periodEnd: '' })
+            }
+          }}
+          className="h-7 rounded-md border border-gray-200 px-2 text-[11px] bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
+          aria-label="Year"
+        >
+          <option value="">Select year…</option>
+          {yearOptions().map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      )}
+      {(periodType === 'quarter' || periodType === 'custom') && (
         <input
           type="text"
           value={periodValue}
           onChange={e => onChange({ ...state, periodValue: e.target.value })}
-          placeholder="e.g. Fall 2025"
+          placeholder={periodType === 'quarter' ? 'e.g. Q3 2025' : 'e.g. FY 2024–25'}
           className="h-7 rounded-md border border-gray-200 px-2 text-[11px] bg-white focus:outline-none focus:ring-1 focus:ring-orange-400 w-36"
-          aria-label="Quarter label"
+          aria-label="Period label"
         />
       )}
-      {periodType && (
+      {periodType && periodType !== 'month' && (
         <>
           <input type="date" value={periodStart}
             onChange={e => onChange({ ...state, periodStart: e.target.value })}
@@ -178,7 +207,9 @@ function PeriodPicker({ state, onChange }: {
       {!periodType && <span className="text-[11px] text-amber-600 italic">Choose a period type to continue</span>}
       {periodType && !periodComplete && (
         <span className="text-[11px] text-amber-600 italic">
-          {periodType === 'month' ? 'Select a month above' : 'Enter a label and start/end dates'}
+          {periodType === 'month' ? 'Select a month above'
+            : periodType === 'year' ? 'Select a year above'
+            : 'Enter a label and start/end dates'}
         </span>
       )}
       {periodComplete && periodValue && (
@@ -217,7 +248,7 @@ function FullMappingEditor({ job, onSave, saving }: FullMappingEditorProps) {
   const rawMappings = (job.column_mappings ?? {}) as Record<string, string>
   const [mappings, setMappings] = useState<Record<string, string>>({ ...schema, ...Object.fromEntries(Object.entries(rawMappings).filter(([, v]) => FULL_FIELD_TYPES.some(t => t.value === v))) })
   const [period, setPeriod] = useState<PeriodState>({
-    periodType: (rawMappings._period_type ?? '') as 'month' | 'quarter' | '',
+    periodType: (rawMappings._period_type ?? '') as PeriodState['periodType'],
     periodValue: rawMappings._period_value ?? '',
     periodStart: rawMappings._period_start ?? '',
     periodEnd: rawMappings._period_end ?? '',
