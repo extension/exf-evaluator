@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import mammoth from 'mammoth'
-import { PDFParse } from 'pdf-parse'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { logAudit } from '@/lib/audit'
 
@@ -23,6 +22,7 @@ const createSchema = z.object({
 })
 
 async function extractPdfText(base64: string): Promise<string> {
+  const { PDFParse } = await import('pdf-parse')
   const buffer = Buffer.from(base64, 'base64')
   const parser = new PDFParse({ data: buffer })
   const result = await parser.getText()
