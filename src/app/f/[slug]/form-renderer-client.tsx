@@ -571,7 +571,9 @@ export function FormRenderer({
               {periodValue
                 ? periodType === 'month' && periodValue.match(/^\d{4}-\d{2}$/)
                   ? new Date(periodValue + '-02').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-                  : periodValue
+                  : periodStart && periodEnd
+                    ? `${periodValue} (${new Date(periodStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${new Date(periodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`
+                    : periodValue
                 : periodStart && periodEnd
                   ? `${new Date(periodStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${new Date(periodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
                   : 'Not assigned'}
