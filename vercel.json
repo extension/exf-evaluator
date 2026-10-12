@@ -4,5 +4,10 @@
       "path": "/api/reminders/run",
       "schedule": "0 10 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "src/app/api/narratives/route.ts": {
+      "maxDuration": 60
+    }
+  }
 }

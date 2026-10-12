@@ -125,6 +125,12 @@ export function NarrativesClient() {
     if (inputMode === 'pdf' && !file) { toast.error('Please select a file'); return }
     if (inputMode === 'text' && !textContent.trim()) { toast.error('Please paste the document text'); return }
 
+    // Guard against files too large to process (base64 + JSON overhead ~1.4×)
+    if (inputMode === 'pdf' && file && file.size > 8 * 1024 * 1024) {
+      toast.error('File is too large (max 8 MB). For bigger documents, paste the text directly using the "Paste text" tab.')
+      return
+    }
+
     setSubmitting(true)
     try {
       let file_base64: string | undefined
@@ -142,21 +148,30 @@ export function NarrativesClient() {
         })
       }
 
-      const res = await fetch('/api/narratives', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          program_id: currentProgram.id,
-          title: title.trim(),
-          description: description.trim() || undefined,
-          document_type: docType,
-          starts_at: startsAt,
-          ends_at: endsAt,
-          file_name,
-          file_base64,
-          text_content: inputMode === 'text' ? textContent.trim() : undefined,
-        }),
-      })
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 90_000)
+
+      let res: Response
+      try {
+        res = await fetch('/api/narratives', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            program_id: currentProgram.id,
+            title: title.trim(),
+            description: description.trim() || undefined,
+            document_type: docType,
+            starts_at: startsAt,
+            ends_at: endsAt,
+            file_name,
+            file_base64,
+            text_content: inputMode === 'text' ? textContent.trim() : undefined,
+          }),
+        })
+      } finally {
+        clearTimeout(timeout)
+      }
 
       if (res.ok) {
         toast.success('Document saved — it will be used to ground future AI reports')
@@ -167,8 +182,12 @@ export function NarrativesClient() {
         const err = await res.json().catch(() => ({}))
         toast.error(typeof err.error === 'string' ? err.error : 'Failed to save document')
       }
-    } catch {
-      toast.error('Failed to process file')
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        toast.error('Upload timed out. Try a smaller file or use the "Paste text" tab for large documents.')
+      } else {
+        toast.error('Failed to process file')
+      }
     }
     setSubmitting(false)
   }
