@@ -146,6 +146,55 @@ function buildContext(
         }
       }
     }
+
+    // Cross-tabulation: numeric fields broken down by each choice field's values.
+    // This lets the AI answer "what was X for submissions tagged as Y?"
+    const choiceFields = form.fields.filter(f =>
+      (f.type === 'single_choice' || f.type === 'multiple_choice') &&
+      !(f as unknown as Record<string, unknown>).hidden
+    )
+    const numericFields = form.fields.filter(f =>
+      ['number', 'scale', 'rating', 'nps', 'slider'].includes(f.type) &&
+      !(f as unknown as Record<string, unknown>).hidden
+    )
+
+    if (choiceFields.length > 0 && numericFields.length > 0) {
+      for (const choiceField of choiceFields) {
+        // Collect all distinct choice values
+        const choiceValues = new Set<string>()
+        for (const row of formRows) {
+          const val = row.data[choiceField.id]
+          const choices = Array.isArray(val) ? val : [val]
+          for (const c of choices) { if (c) choiceValues.add(String(c)) }
+        }
+        if (choiceValues.size === 0 || choiceValues.size > 50) continue
+
+        const choiceLabel = choiceField.label || choiceField.id
+        lines.push(`  BREAKDOWN of numeric fields by [${choiceLabel}]:`)
+
+        for (const cv of [...choiceValues].sort()) {
+          const groupRows = formRows.filter(row => {
+            const val = row.data[choiceField.id]
+            const choices = Array.isArray(val) ? val : [val]
+            return choices.some(c => String(c) === cv)
+          })
+          const parts: string[] = []
+          for (const nf of numericFields) {
+            const vals = groupRows
+              .map(r => Number(r.data[nf.id]))
+              .filter(v => !isNaN(v) && v !== 0)
+            const stats = numStats(vals)
+            if (stats) {
+              parts.push(`[${nf.label || nf.id}] n=${stats.count} sum=${stats.sum} avg=${stats.avg}`)
+            }
+          }
+          if (parts.length) {
+            lines.push(`    "${cv}" (${groupRows.length} submissions): ${parts.join(' | ')}`)
+          }
+        }
+      }
+    }
+
     lines.push('')
   }
 
