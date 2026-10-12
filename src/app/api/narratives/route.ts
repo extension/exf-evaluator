@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import Anthropic from '@anthropic-ai/sdk'
 import mammoth from 'mammoth'
+import { PDFParse } from 'pdf-parse'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { logAudit } from '@/lib/audit'
 
-const client = new Anthropic()
+export const maxDuration = 60
 
 const DOCUMENT_TYPES = ['narrative', 'logic_model', 'continuation', 'evaluation', 'budget', 'progress_report', 'other'] as const
 
@@ -22,35 +22,11 @@ const createSchema = z.object({
   text_content: z.string().optional(), // manually pasted text
 })
 
-/**
- * Extract meaningful text from a PDF by sending it to Claude as a document.
- * Claude reads the full PDF and returns the extracted narrative text.
- */
-async function extractPdfText(base64: string, fileName: string): Promise<string> {
-  const msg = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 8000,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: {
-              type: 'base64',
-              media_type: 'application/pdf',
-              data: base64,
-            },
-          } as never,
-          {
-            type: 'text',
-            text: `Please extract and return the full text content of this document (${fileName}). Preserve the structure, headings, and key information as faithfully as possible. Do not summarize — return the actual content so it can be used as grounding context for an AI analysis system. If the document is very long, prioritize the program narrative, goals, objectives, and expected outcomes.`,
-          },
-        ],
-      },
-    ],
-  })
-  return msg.content[0].type === 'text' ? msg.content[0].text : ''
+async function extractPdfText(base64: string): Promise<string> {
+  const buffer = Buffer.from(base64, 'base64')
+  const parser = new PDFParse({ data: buffer })
+  const result = await parser.getText()
+  return result.text
 }
 
 async function extractDocxText(base64: string): Promise<string> {
@@ -105,7 +81,7 @@ export async function POST(request: Request) {
     try {
       content = isDocx
         ? await extractDocxText(file_base64)
-        : await extractPdfText(file_base64, file_name)
+        : await extractPdfText(file_base64)
     } catch (e) {
       console.error('Document extraction failed:', e)
       return NextResponse.json({ error: 'Failed to extract text from the document. Try pasting the text directly.' }, { status: 500 })
