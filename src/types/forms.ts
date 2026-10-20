@@ -97,6 +97,20 @@ export interface FormSchema {
   pages: FormPage[]
 }
 
+export type SheetColumnType = 'text' | 'number' | 'date' | 'dropdown'
+
+export interface SheetColumn {
+  id: string
+  label: string
+  type: SheetColumnType
+  options?: string[]
+  required?: boolean
+}
+
+export interface SheetSchema {
+  columns: SheetColumn[]
+}
+
 export type PeriodType = 'month' | 'quarter'
 
 export interface FormSettings {
@@ -115,6 +129,8 @@ export interface FormSettings {
   periodValue?: string          // 'YYYY-MM' for month, free-text label for quarter
   periodStart?: string          // ISO date: actual start of the reporting period
   periodEnd?: string            // ISO date: actual end of the reporting period
+  // Whether this is a regular form or a spreadsheet-style data collector
+  formType?: 'form' | 'spreadsheet'
   // Folder grouping on the forms list
   folder?: string
   // Tab grouping on the forms list (e.g. "Q1", "Q2", "End of Year")

@@ -10,13 +10,17 @@ const createFormSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(1000).nullish().transform(v => v ?? undefined),
   template_id: z.string().min(1).optional(),
-  schema: z.object({
-    pages: z.array(z.object({
-      id: z.string(),
-      title: z.string(),
-      fields: z.array(z.record(z.string(), z.unknown())),
-    })),
-  }).optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
+  schema: z.union([
+    z.object({
+      pages: z.array(z.object({
+        id: z.string(),
+        title: z.string(),
+        fields: z.array(z.record(z.string(), z.unknown())),
+      })),
+    }),
+    z.object({ columns: z.array(z.record(z.string(), z.unknown())) }),
+  ]).optional(),
 })
 
 export async function GET(request: Request) {
@@ -47,7 +51,7 @@ export async function POST(request: Request) {
   const parsed = createFormSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues }, { status: 400 })
 
-  const { name, description, program_id, template_id, schema } = parsed.data
+  const { name, description, program_id, template_id, schema, settings: initialSettings } = parsed.data
 
   // Generate a unique slug
   const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -73,7 +77,7 @@ export async function POST(request: Request) {
     template_id,
     slug,
     schema: formSchema as unknown as Json,
-    settings: {} as unknown as Json,
+    settings: (initialSettings ?? {}) as unknown as Json,
     status: 'draft',
     created_by: user.id,
     author_email: authorEmail,

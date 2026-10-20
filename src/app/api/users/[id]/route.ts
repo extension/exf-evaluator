@@ -27,20 +27,30 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .single()
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Verify the caller has admin rights in this program
+  // Verify the caller has admin rights: program_admin in this program OR super_admin anywhere
   const { data: callerMembership } = await supabase
     .from('program_memberships')
     .select('role')
     .eq('program_id', existing.program_id)
     .eq('user_id', user.id)
     .single()
-  const callerRole = callerMembership?.role
-  if (callerRole !== 'super_admin' && callerRole !== 'program_admin') {
+  const callerProgramRole = callerMembership?.role
+
+  const { data: superAdminCheck } = await supabase
+    .from('program_memberships')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('role', 'super_admin')
+    .limit(1)
+    .single()
+  const isSuperAdmin = !!superAdminCheck
+
+  if (!isSuperAdmin && callerProgramRole !== 'program_admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   // Only super_admins can assign the super_admin role
-  if ('role' in parsed.data && parsed.data.role === 'super_admin' && callerRole !== 'super_admin') {
+  if ('role' in parsed.data && parsed.data.role === 'super_admin' && !isSuperAdmin) {
     return NextResponse.json({ error: 'Only super admins can assign the super_admin role' }, { status: 403 })
   }
 
@@ -48,9 +58,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if ('action' in parsed.data) {
     const { action } = parsed.data
 
-    // Look up the member's email
-    const { data: { users } } = await service.auth.admin.listUsers()
-    const memberUser = users?.find(u => u.id === existing.user_id)
+    // Look up the member's email via getUserById to avoid listUsers() pagination limits
+    const { data: { user: memberUser } } = await service.auth.admin.getUserById(existing.user_id)
     if (!memberUser?.email) return NextResponse.json({ error: 'User email not found' }, { status: 404 })
 
     const { data: program } = await supabase.from('programs').select('name').eq('id', existing.program_id).single()
@@ -126,8 +135,18 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     .eq('program_id', existing.program_id)
     .eq('user_id', user.id)
     .single()
-  const callerRole = callerMembership?.role
-  if (callerRole !== 'super_admin' && callerRole !== 'program_admin') {
+  const callerProgramRole = callerMembership?.role
+
+  const { data: superAdminCheck } = await supabase
+    .from('program_memberships')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('role', 'super_admin')
+    .limit(1)
+    .single()
+  const isSuperAdmin = !!superAdminCheck
+
+  if (!isSuperAdmin && callerProgramRole !== 'program_admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

@@ -26,6 +26,7 @@ import {
   Radio,
   PieChart,
   Paperclip,
+  TableProperties,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -64,6 +65,7 @@ const navItems: NavItem[] = [
       { label: 'Templates',  href: '/forms/templates', icon: BookOpen },
     ],
   },
+  { label: 'Sheets',              href: '/sheets',      icon: TableProperties, roles: ADMIN_ROLES },
   { label: 'Submissions',         href: '/submissions', icon: Inbox,        roles: STAFF_PLUS },
   { label: 'Reports',             href: '/reports',     icon: FileBarChart2, roles: ADMIN_ROLES },
   { label: 'Impact Dashboard',    href: '/impact',      icon: BarChart3,     roles: ADMIN_ROLES },

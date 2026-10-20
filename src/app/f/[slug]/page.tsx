@@ -1,6 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { FormRenderer } from './form-renderer-client'
-import type { FormSchema, FormSettings } from '@/types/forms'
+import { SheetRendererClient } from './sheet-renderer-client'
+import type { FormSchema, FormSettings, SheetSchema } from '@/types/forms'
 
 interface Props {
   params: Promise<{ slug: string }>
@@ -25,10 +26,11 @@ export default async function PublicFormPage({ params, searchParams }: Props) {
   }
 
   const program = form.programs as { name: string; brand_color: string | null } | null
-  const schema = form.schema as unknown as FormSchema
+  const rawSchema = form.schema as unknown
   // Settings may be stored with camelCase or snake_case keys depending on when they were saved.
   // Cast through both to be safe.
   const s = (form.settings as Record<string, unknown> | null) ?? {}
+  const isSpreadsheet = s.formType === 'spreadsheet'
   const settings: FormSettings = {
     closesAt:            (s.closesAt ?? s.closes_at) as string | undefined,
     opensAt:             (s.opensAt  ?? s.opens_at)  as string | undefined,
@@ -43,6 +45,7 @@ export default async function PublicFormPage({ params, searchParams }: Props) {
 
   // Preview mode: show the form read-only, no token required, no submissions
   if (isPreview) {
+    const schema = rawSchema as FormSchema
     return (
       <FormRenderer
         formId={form.id}
@@ -91,6 +94,25 @@ export default async function PublicFormPage({ params, searchParams }: Props) {
     .eq('status', 'draft')
     .maybeSingle()
 
+  if (isSpreadsheet) {
+    return (
+      <SheetRendererClient
+        formId={form.id}
+        formName={form.name}
+        schema={rawSchema as SheetSchema}
+        token={token}
+        tokenId={tokenRow.id}
+        respondentEmail={tokenRow.email}
+        programName={program?.name ?? 'Extension Pulse'}
+        brandColor={program?.brand_color ?? '#ea580c'}
+        confirmationMessage={settings.confirmationMessage}
+        draftId={existingDraft?.id ?? undefined}
+        draftData={existingDraft?.data as { rows?: Array<{ id: string; [k: string]: string }> } | undefined}
+      />
+    )
+  }
+
+  const schema = rawSchema as FormSchema
   return (
     <FormRenderer
       formId={form.id}

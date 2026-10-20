@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { SubmissionDetailClient } from './submission-detail-client'
-import type { FormSchema } from '@/types/forms'
+import type { FormSchema, FormSettings, SheetSchema } from '@/types/forms'
 
 export default async function SubmissionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -11,7 +11,7 @@ export default async function SubmissionDetailPage({ params }: { params: Promise
 
   const { data: raw } = await supabase
     .from('submissions')
-    .select('*, forms(name, slug, schema, program_id), submission_tokens(email, metadata)')
+    .select('*, forms(name, slug, schema, settings, program_id), submission_tokens(email, metadata)')
     .eq('id', id)
     .single()
 
@@ -31,7 +31,11 @@ export default async function SubmissionDetailPage({ params }: { params: Promise
     currentRole = membership?.role ?? null
   }
 
-  const schema = raw.forms?.schema as unknown as FormSchema | null
+  const rawSettings = (raw.forms as { settings?: unknown } | null)?.settings
+  const formSettings = (rawSettings ?? {}) as FormSettings
+  const isSpreadsheet = formSettings.formType === 'spreadsheet'
+  const schema = isSpreadsheet ? null : (raw.forms?.schema as unknown as FormSchema | null)
+  const sheetSchema = isSpreadsheet ? (raw.forms?.schema as unknown as SheetSchema) : null
   const meta = ((raw.metadata ?? {}) as Record<string, unknown>)
   const effectiveStatus = meta.flagged ? 'flagged' : raw.status
 
@@ -39,6 +43,7 @@ export default async function SubmissionDetailPage({ params }: { params: Promise
     <SubmissionDetailClient
       submission={{ ...(raw as unknown as Parameters<typeof SubmissionDetailClient>[0]['submission']), effectiveStatus: effectiveStatus as 'draft' | 'submitted' | 'reviewed' | 'flagged' }}
       schema={schema}
+      sheetSchema={sheetSchema}
       currentRole={currentRole}
     />
   )

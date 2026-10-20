@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow, format } from 'date-fns'
-import type { FormSchema, FormField } from '@/types/forms'
+import type { FormSchema, FormField, SheetSchema } from '@/types/forms'
 
 type Status = 'draft' | 'submitted' | 'reviewed' | 'flagged'
 
@@ -27,6 +27,7 @@ interface Submission {
 interface Props {
   submission: Submission
   schema: FormSchema | null
+  sheetSchema?: SheetSchema | null
   currentRole: string | null
 }
 
@@ -246,7 +247,7 @@ function EditControl({
   }
 }
 
-export function SubmissionDetailClient({ submission: initial, schema, currentRole }: Props) {
+export function SubmissionDetailClient({ submission: initial, schema, sheetSchema, currentRole }: Props) {
   const canEdit = currentRole === 'super_admin' || currentRole === 'program_admin'
   const router = useRouter()
   const [submission, setSubmission] = useState(initial)
@@ -618,7 +619,7 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-3.5 border-b border-gray-50 flex items-center justify-between">
           <h2 className="text-[13px] font-semibold text-gray-600 uppercase tracking-wider">Responses</h2>
-          {editing ? (
+          {!sheetSchema && (editing ? (
             <div className="flex items-center gap-1.5">
               <Button
                 variant="ghost" size="sm"
@@ -644,38 +645,79 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
             >
               <Pencil className="h-3 w-3" aria-hidden="true" /> Edit responses
             </Button>
-          ) : null}
+          ) : null)}
         </div>
-        <dl className="divide-y divide-gray-50">
-          {displayFields.length === 0 && (
-            <div className="px-5 py-8 text-center text-[13px] text-gray-400">No field definitions found for this form.</div>
-          )}
-          {displayFields.map(field => {
-            if (field.type === 'section_header') {
+
+        {sheetSchema ? (
+          // Sheet submission: render rows as a table
+          <div className="overflow-x-auto">
+            {(() => {
+              const sheetRows = (data.rows as Array<Record<string, string>> | undefined) ?? []
+              const cols = sheetSchema.columns
               return (
-                <div key={field.id} className="px-5 py-2.5 bg-gray-50 border-t border-gray-100 first:border-t-0">
-                  <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{field.label || field.content}</h3>
+                <table className="min-w-full text-[12px]">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <th className="w-8 px-3 py-2.5 text-gray-400 font-medium text-left">#</th>
+                      {cols.map(c => (
+                        <th key={c.id} className="px-3 py-2.5 text-gray-600 font-semibold text-left whitespace-nowrap">
+                          {c.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sheetRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={cols.length + 1} className="px-5 py-8 text-center text-gray-400">No rows recorded.</td>
+                      </tr>
+                    ) : sheetRows.map((row, i) => (
+                      <tr key={row.id ?? i} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                        <td className="px-3 py-2.5 text-gray-300">{i + 1}</td>
+                        {cols.map(c => (
+                          <td key={c.id} className="px-3 py-2.5 text-gray-700">
+                            {row[c.id] ?? '—'}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            })()}
+          </div>
+        ) : (
+          <dl className="divide-y divide-gray-50">
+            {displayFields.length === 0 && (
+              <div className="px-5 py-8 text-center text-[13px] text-gray-400">No field definitions found for this form.</div>
+            )}
+            {displayFields.map(field => {
+              if (field.type === 'section_header') {
+                return (
+                  <div key={field.id} className="px-5 py-2.5 bg-gray-50 border-t border-gray-100 first:border-t-0">
+                    <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{field.label || field.content}</h3>
+                  </div>
+                )
+              }
+              return (
+                <div key={field.id} className={cn('px-5 py-3 grid grid-cols-5 gap-4', editing && 'items-start')}>
+                  <dt className="col-span-2 text-[13px] font-medium text-gray-500 leading-snug pt-0.5">{field.label || field.type}</dt>
+                  <dd className="col-span-3">
+                    {editing ? (
+                      <EditControl
+                        field={field}
+                        value={editData[field.id]}
+                        onChange={v => setEditData(d => ({ ...d, [field.id]: v }))}
+                      />
+                    ) : (
+                      <span className="text-[13px] text-gray-800">{formatAnswer(field, data[field.id])}</span>
+                    )}
+                  </dd>
                 </div>
               )
-            }
-            return (
-              <div key={field.id} className={cn('px-5 py-3 grid grid-cols-5 gap-4', editing && 'items-start')}>
-                <dt className="col-span-2 text-[13px] font-medium text-gray-500 leading-snug pt-0.5">{field.label || field.type}</dt>
-                <dd className="col-span-3">
-                  {editing ? (
-                    <EditControl
-                      field={field}
-                      value={editData[field.id]}
-                      onChange={v => setEditData(d => ({ ...d, [field.id]: v }))}
-                    />
-                  ) : (
-                    <span className="text-[13px] text-gray-800">{formatAnswer(field, data[field.id])}</span>
-                  )}
-                </dd>
-              </div>
-            )
-          })}
-        </dl>
+            })}
+          </dl>
+        )}
       </div>
 
       {/* Details */}
