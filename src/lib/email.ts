@@ -311,6 +311,37 @@ export async function sendPasswordResetEmail(params: {
   await sendRawEmail(to, subject, text, html)
 }
 
+export async function sendNewSubmissionEmail(params: {
+  to: string
+  formName: string
+  programName: string
+  respondentEmail: string | null
+  submissionUrl: string
+}): Promise<void> {
+  const { to, formName, programName, respondentEmail, submissionUrl } = params
+  const subject = `New submission received for "${formName}"`
+  const from = respondentEmail ?? 'Anonymous'
+  const text = [
+    `A new submission was received for "${formName}" in ${programName}.`,
+    '',
+    `From: ${from}`,
+    '',
+    `View it here: ${submissionUrl}`,
+  ].join('\n')
+  const html = `
+<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 16px;color:#111;">
+  <h2 style="font-size:20px;margin-bottom:8px;">New submission received</h2>
+  <p style="color:#555;">A new response was submitted for <strong>${formName}</strong> in <strong>${programName}</strong>.</p>
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+    <tr><td style="padding:6px 0;color:#888;width:100px;">From</td><td style="padding:6px 0;color:#333;">${from}</td></tr>
+    <tr><td style="padding:6px 0;color:#888;">Form</td><td style="padding:6px 0;color:#333;">${formName}</td></tr>
+  </table>
+  <a href="${submissionUrl}" style="display:inline-block;background:#ea580c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0;">View submission</a>
+  <p style="font-size:12px;color:#aaa;margin-top:12px;">Link: ${submissionUrl}</p>
+</body></html>`
+  await sendRawEmail(to, subject, text, html)
+}
+
 export async function sendResendFormEmail(params: {
   to: string
   formName: string

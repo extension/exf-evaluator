@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { sendNewSubmissionEmail } from '@/lib/email'
+import type { FormSettings } from '@/types/forms'
 
 const submitSchema = z.object({
   token: z.string().min(1),
@@ -75,6 +77,31 @@ export async function POST(request: Request) {
   // Mark token as used only on final submit
   if (status === 'submitted') {
     await service.from('submission_tokens').update({ used_at: new Date().toISOString() }).eq('id', tokenRow.id)
+
+    // Send notification emails if the form has any configured
+    const { data: formRow } = await service
+      .from('forms')
+      .select('name, settings, programs(name)')
+      .eq('id', form_id)
+      .single()
+
+    const notificationEmails = ((formRow?.settings ?? {}) as FormSettings).notificationEmails ?? []
+    if (notificationEmails.length > 0 && formRow) {
+      const programName = (formRow.programs as { name: string } | null)?.name ?? 'the program'
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+      const submissionUrl = `${appUrl}/submissions/${submission.id}`
+      await Promise.allSettled(
+        notificationEmails.map(email =>
+          sendNewSubmissionEmail({
+            to: email,
+            formName: formRow.name,
+            programName,
+            respondentEmail: tokenRow.email ?? null,
+            submissionUrl,
+          })
+        )
+      )
+    }
   }
 
   return NextResponse.json(submission, { status: 201 })
