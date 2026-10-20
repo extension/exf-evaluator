@@ -183,7 +183,7 @@ export function DashboardClient({ userId }: { userId?: string }) {
         ) : (
           <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
             {recentForms.map((form, i) => (
-              <Link key={form.id} href={`/forms/${form.id}`}>
+              <Link key={form.id} href={`/forms/${form.id}/edit`}>
                 <div className={cn(
                   'flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors',
                   i < recentForms.length - 1 && 'border-b border-gray-50'
