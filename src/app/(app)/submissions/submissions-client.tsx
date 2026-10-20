@@ -1095,6 +1095,9 @@ export function SubmissionsClient() {
                             </div>
                           </div>
                           <span className="text-[12px] text-gray-400 flex-shrink-0">{submittedAt}</span>
+                          {(sub.effectiveStatus ?? sub.status) === 'submitted' && (
+                            <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[11px] font-semibold text-white flex-shrink-0">New</span>
+                          )}
                           <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-medium flex-shrink-0', cfg.className)}>{cfg.label}</span>
                           <ChevronRight className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-400 flex-shrink-0" />
                         </button>
