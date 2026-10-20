@@ -700,6 +700,7 @@ export function SubmissionsClient() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [folderFilter, setFolderFilter] = useState<FolderFilter>(null)
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<ActiveTab>('list')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
@@ -892,19 +893,40 @@ export function SubmissionsClient() {
                   </button>
                   {folderTree.folders.map(([folderName, folderForms]) => {
                     const isActive = folderFilter?.type === 'folder' && folderFilter.name === folderName
+                    const isCollapsed = collapsedFolders.has(folderName)
+                    function toggleCollapse(e: React.MouseEvent) {
+                      e.stopPropagation()
+                      setCollapsedFolders(prev => {
+                        const next = new Set(prev)
+                        next.has(folderName) ? next.delete(folderName) : next.add(folderName)
+                        return next
+                      })
+                    }
                     return (
                       <div key={folderName} className="border-b border-gray-50 last:border-b-0">
-                        <button
-                          onClick={() => setFolderFilter(isActive ? null : { type: 'folder', name: folderName })}
-                          className={cn(
-                            'w-full flex items-center gap-2 px-3 py-2 text-[12px] font-semibold transition-colors',
-                            isActive ? 'bg-orange-50 text-orange-700' : 'text-gray-500 hover:bg-gray-50'
-                          )}
-                        >
-                          {isActive ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-orange-500" /> : <Folder className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />}
-                          <span className="flex-1 text-left truncate">{folderName}</span>
-                        </button>
-                        {folderForms.map(form => {
+                        <div className={cn(
+                          'flex items-center transition-colors',
+                          isActive ? 'bg-orange-50' : 'hover:bg-gray-50'
+                        )}>
+                          <button
+                            onClick={() => setFolderFilter(isActive ? null : { type: 'folder', name: folderName })}
+                            className={cn(
+                              'flex items-center gap-2 flex-1 min-w-0 px-3 py-2 text-[12px] font-semibold text-left',
+                              isActive ? 'text-orange-700' : 'text-gray-500'
+                            )}
+                          >
+                            {isActive ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-orange-500" /> : <Folder className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />}
+                            <span className="truncate">{folderName}</span>
+                          </button>
+                          <button
+                            onClick={toggleCollapse}
+                            className="px-2 py-2 text-gray-300 hover:text-gray-500 transition-colors flex-shrink-0"
+                            aria-label={isCollapsed ? 'Expand folder' : 'Collapse folder'}
+                          >
+                            <ChevronDown className={cn('h-3 w-3 transition-transform', isCollapsed && '-rotate-90')} />
+                          </button>
+                        </div>
+                        {!isCollapsed && folderForms.map(form => {
                           const isFormActive = folderFilter?.type === 'form' && folderFilter.id === form.id
                           const count = submissions.filter(s => s.form_id === form.id).length
                           return (
@@ -926,17 +948,29 @@ export function SubmissionsClient() {
                   })}
                   {folderTree.unfiled.length > 0 && (
                     <div>
-                      <button
-                        onClick={() => setFolderFilter(folderFilter?.type === 'folder' && folderFilter.name === '' ? null : { type: 'folder', name: '' })}
-                        className={cn(
-                          'w-full flex items-center gap-2 px-3 py-2 text-[12px] font-semibold transition-colors border-t border-gray-50',
-                          folderFilter?.type === 'folder' && folderFilter.name === '' ? 'bg-orange-50 text-orange-700' : 'text-gray-400 hover:bg-gray-50'
-                        )}
-                      >
-                        <Folder className="h-3.5 w-3.5 flex-shrink-0" />
-                        Unfiled
-                      </button>
-                      {folderTree.unfiled.map(form => {
+                      <div className={cn(
+                        'flex items-center border-t border-gray-50 transition-colors',
+                        folderFilter?.type === 'folder' && folderFilter.name === '' ? 'bg-orange-50' : 'hover:bg-gray-50'
+                      )}>
+                        <button
+                          onClick={() => setFolderFilter(folderFilter?.type === 'folder' && folderFilter.name === '' ? null : { type: 'folder', name: '' })}
+                          className={cn(
+                            'flex items-center gap-2 flex-1 min-w-0 px-3 py-2 text-[12px] font-semibold text-left',
+                            folderFilter?.type === 'folder' && folderFilter.name === '' ? 'text-orange-700' : 'text-gray-400'
+                          )}
+                        >
+                          <Folder className="h-3.5 w-3.5 flex-shrink-0" />
+                          Unfiled
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); setCollapsedFolders(prev => { const next = new Set(prev); next.has('__unfiled__') ? next.delete('__unfiled__') : next.add('__unfiled__'); return next }) }}
+                          className="px-2 py-2 text-gray-300 hover:text-gray-500 transition-colors flex-shrink-0"
+                          aria-label={collapsedFolders.has('__unfiled__') ? 'Expand unfiled' : 'Collapse unfiled'}
+                        >
+                          <ChevronDown className={cn('h-3 w-3 transition-transform', collapsedFolders.has('__unfiled__') && '-rotate-90')} />
+                        </button>
+                      </div>
+                      {!collapsedFolders.has('__unfiled__') && folderTree.unfiled.map(form => {
                         const isFormActive = folderFilter?.type === 'form' && folderFilter.id === form.id
                         const count = submissions.filter(s => s.form_id === form.id).length
                         return (
