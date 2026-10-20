@@ -77,7 +77,7 @@ function escCsv(v: unknown): string {
   return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-type StatusFilter = 'all' | 'submitted' | 'reviewed' | 'flagged' | 'draft' | 'unassigned' | 'imported'
+type StatusFilter = 'all' | 'new' | 'submitted' | 'reviewed' | 'flagged' | 'draft' | 'unassigned' | 'imported'
 type FolderFilter = null | { type: 'folder'; name: string } | { type: 'form'; id: string }
 type ActiveTab = 'list' | 'table' | 'respondents'
 
@@ -90,6 +90,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
 
 const filterButtons: { key: StatusFilter; label: string }[] = [
   { key: 'all', label: 'All' },
+  { key: 'new', label: 'New' },
   { key: 'submitted', label: 'Submitted' },
   { key: 'reviewed', label: 'Reviewed' },
   { key: 'flagged', label: 'Flagged' },
@@ -793,6 +794,7 @@ export function SubmissionsClient() {
     .filter(s => {
       if (statusFilter === 'unassigned') return !s.respondent_email
       if (statusFilter === 'imported') return isImported(s)
+      if (statusFilter === 'new') return (s.effectiveStatus ?? s.status) === 'submitted'
       return statusFilter === 'all' || s.status === statusFilter
     })
     .filter(s => {
@@ -1002,7 +1004,11 @@ export function SubmissionsClient() {
                   {filterButtons.map(btn => (
                     <button key={btn.key} onClick={() => setStatusFilter(btn.key)}
                       className={cn('rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors',
-                        statusFilter === btn.key ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900')}>
+                        btn.key === 'new' && statusFilter !== 'new'
+                          ? 'text-emerald-600 hover:text-emerald-700'
+                          : statusFilter === btn.key
+                            ? btn.key === 'new' ? 'bg-emerald-500 text-white' : 'bg-gray-900 text-white'
+                            : 'text-gray-500 hover:text-gray-900')}>
                       {btn.label}
                     </button>
                   ))}
