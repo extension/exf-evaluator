@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { ArrowLeft, Flag, CheckCircle, RotateCcw, UserRoundCog, Pencil, Save, X, Send, MessageSquare, Trash2 } from 'lucide-react'
+import { ArrowLeft, Flag, CheckCircle, RotateCcw, UserRoundCog, Pencil, Save, X, Send, MessageSquare, Trash2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -252,6 +252,7 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
   const [submission, setSubmission] = useState(initial)
   const [updating, setUpdating] = useState(false)
   const [reassigning, setReassigning] = useState(false)
+  const [resending, setResending] = useState(false)
   const [reassignEmail, setReassignEmail] = useState('')
   const [reassignBusy, setReassignBusy] = useState(false)
 
@@ -380,6 +381,20 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
     }
   }
 
+  async function handleResend() {
+    setResending(true)
+    const res = await fetch(`/api/submissions/${submission.id}/resend`, { method: 'POST' })
+    setResending(false)
+    if (res.ok) {
+      const result = await res.json()
+      toast.success(`Form link re-sent to ${result.to}`)
+      setSubmission(s => ({ ...s, status: 'draft', effectiveStatus: 'draft' } as typeof s))
+    } else {
+      const err = await res.json().catch(() => ({}))
+      toast.error(typeof err.error === 'string' ? err.error : 'Failed to resend form link')
+    }
+  }
+
   async function handleWithdraw() {
     setWithdrawing(true)
     const res = await fetch(`/api/submissions/${submission.id}`, { method: 'DELETE' })
@@ -491,6 +506,22 @@ export function SubmissionDetailClient({ submission: initial, schema, currentRol
               </div>
             )}
           </div>}
+
+          {/* Re-send form link — for asking respondents to fill in newly added questions */}
+          {canEdit && submission.respondent_email && (
+            <div className="mb-4">
+              <Button
+                variant="ghost" size="sm"
+                className="gap-1.5 text-[13px] h-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                onClick={handleResend}
+                disabled={resending}
+                aria-busy={resending}
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                {resending ? 'Sending…' : 'Re-send form link to respondent'}
+              </Button>
+            </div>
+          )}
 
           {/* Withdraw */}
           {canEdit && (

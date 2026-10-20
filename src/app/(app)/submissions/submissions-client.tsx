@@ -15,7 +15,7 @@ import {
 import {
   Search, Inbox, ChevronRight, Download,
   List, Table2, UserSearch, ChevronDown, Calendar,
-  FileText, CheckCircle2, Clock, UserPlus, X,
+  FileText, CheckCircle2, Clock, UserPlus, X, Folder, FolderOpen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatDistanceToNow } from 'date-fns'
@@ -77,7 +77,8 @@ function escCsv(v: unknown): string {
   return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-type StatusFilter = 'all' | 'submitted' | 'reviewed' | 'flagged' | 'draft' | 'unassigned'
+type StatusFilter = 'all' | 'submitted' | 'reviewed' | 'flagged' | 'draft' | 'unassigned' | 'imported'
+type FolderFilter = null | { type: 'folder'; name: string } | { type: 'form'; id: string }
 type ActiveTab = 'list' | 'table' | 'respondents'
 
 const statusConfig: Record<string, { label: string; className: string }> = {
@@ -93,6 +94,7 @@ const filterButtons: { key: StatusFilter; label: string }[] = [
   { key: 'reviewed', label: 'Reviewed' },
   { key: 'flagged', label: 'Flagged' },
   { key: 'unassigned', label: 'Unassigned' },
+  { key: 'imported', label: 'Imported' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -697,6 +699,7 @@ export function SubmissionsClient() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [folderFilter, setFolderFilter] = useState<FolderFilter>(null)
   const [activeTab, setActiveTab] = useState<ActiveTab>('list')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
@@ -788,8 +791,33 @@ export function SubmissionsClient() {
     })
     .filter(s => {
       if (statusFilter === 'unassigned') return !s.respondent_email
+      if (statusFilter === 'imported') return isImported(s)
       return statusFilter === 'all' || s.status === statusFilter
     })
+    .filter(s => {
+      if (!folderFilter) return true
+      if (folderFilter.type === 'form') return s.form_id === folderFilter.id
+      const form = forms.find(f => f.id === s.form_id)
+      return (form?.settings?.folder ?? '') === folderFilter.name
+    })
+
+  // Folder sidebar data: group non-draft forms by their folder setting
+  const folderTree = useMemo(() => {
+    const folderMap = new Map<string, FormRow[]>()
+    const unfiled: FormRow[] = []
+    for (const form of forms) {
+      const folder = form.settings?.folder?.trim()
+      if (folder) {
+        const bucket = folderMap.get(folder) ?? []
+        bucket.push(form)
+        folderMap.set(folder, bucket)
+      } else {
+        unfiled.push(form)
+      }
+    }
+    const sorted = [...folderMap.entries()].sort(([a], [b]) => a.localeCompare(b))
+    return { folders: sorted, unfiled }
+  }, [forms])
 
   const tabs: { key: ActiveTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { key: 'list', label: isRestricted ? 'My Submissions' : 'All Submissions', icon: List },
@@ -848,7 +876,89 @@ export function SubmissionsClient() {
         <>
           {/* ── List tab ── */}
           {activeTab === 'list' && (
-            <>
+            <div className="flex gap-5 items-start">
+              {/* Folder sidebar — only shown when folders exist */}
+              {!isRestricted && (folderTree.folders.length > 0 || folderTree.unfiled.length > 0) && (
+                <div className="w-52 flex-shrink-0 rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+                  <button
+                    onClick={() => setFolderFilter(null)}
+                    className={cn(
+                      'w-full flex items-center gap-2 px-3 py-2.5 text-[13px] font-medium transition-colors border-b border-gray-50',
+                      !folderFilter ? 'bg-orange-50 text-orange-700' : 'text-gray-600 hover:bg-gray-50'
+                    )}
+                  >
+                    <List className="h-3.5 w-3.5 flex-shrink-0" />
+                    All submissions
+                  </button>
+                  {folderTree.folders.map(([folderName, folderForms]) => {
+                    const isActive = folderFilter?.type === 'folder' && folderFilter.name === folderName
+                    return (
+                      <div key={folderName} className="border-b border-gray-50 last:border-b-0">
+                        <button
+                          onClick={() => setFolderFilter(isActive ? null : { type: 'folder', name: folderName })}
+                          className={cn(
+                            'w-full flex items-center gap-2 px-3 py-2 text-[12px] font-semibold transition-colors',
+                            isActive ? 'bg-orange-50 text-orange-700' : 'text-gray-500 hover:bg-gray-50'
+                          )}
+                        >
+                          {isActive ? <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-orange-500" /> : <Folder className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />}
+                          <span className="flex-1 text-left truncate">{folderName}</span>
+                        </button>
+                        {folderForms.map(form => {
+                          const isFormActive = folderFilter?.type === 'form' && folderFilter.id === form.id
+                          const count = submissions.filter(s => s.form_id === form.id).length
+                          return (
+                            <button
+                              key={form.id}
+                              onClick={() => setFolderFilter(isFormActive ? null : { type: 'form', id: form.id })}
+                              className={cn(
+                                'w-full flex items-center justify-between pl-8 pr-3 py-1.5 text-[12px] transition-colors',
+                                isFormActive ? 'bg-orange-50 text-orange-700 font-medium' : 'text-gray-500 hover:bg-gray-50'
+                              )}
+                            >
+                              <span className="truncate text-left">{form.name}</span>
+                              <span className="ml-1 flex-shrink-0 text-[10px] text-gray-400">{count}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                  {folderTree.unfiled.length > 0 && (
+                    <div>
+                      <button
+                        onClick={() => setFolderFilter(folderFilter?.type === 'folder' && folderFilter.name === '' ? null : { type: 'folder', name: '' })}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-3 py-2 text-[12px] font-semibold transition-colors border-t border-gray-50',
+                          folderFilter?.type === 'folder' && folderFilter.name === '' ? 'bg-orange-50 text-orange-700' : 'text-gray-400 hover:bg-gray-50'
+                        )}
+                      >
+                        <Folder className="h-3.5 w-3.5 flex-shrink-0" />
+                        Unfiled
+                      </button>
+                      {folderTree.unfiled.map(form => {
+                        const isFormActive = folderFilter?.type === 'form' && folderFilter.id === form.id
+                        const count = submissions.filter(s => s.form_id === form.id).length
+                        return (
+                          <button
+                            key={form.id}
+                            onClick={() => setFolderFilter(isFormActive ? null : { type: 'form', id: form.id })}
+                            className={cn(
+                              'w-full flex items-center justify-between pl-8 pr-3 py-1.5 text-[12px] transition-colors',
+                              isFormActive ? 'bg-orange-50 text-orange-700 font-medium' : 'text-gray-500 hover:bg-gray-50'
+                            )}
+                          >
+                            <span className="truncate text-left">{form.name}</span>
+                            <span className="ml-1 flex-shrink-0 text-[10px] text-gray-400">{count}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3 mb-4">
                 <div className="relative flex-1 max-w-xs">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -959,7 +1069,8 @@ export function SubmissionsClient() {
                   })}
                 </div>
               )}
-            </>
+              </div>{/* flex-1 */}
+            </div>
           )}
 
           {activeTab === 'table' && <TableView submissions={submissions} forms={forms} onAssigned={handleAssigned} />}

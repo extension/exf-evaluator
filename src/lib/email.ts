@@ -311,6 +311,33 @@ export async function sendPasswordResetEmail(params: {
   await sendRawEmail(to, subject, text, html)
 }
 
+export async function sendResendFormEmail(params: {
+  to: string
+  formName: string
+  programName: string
+  formLink?: string
+}): Promise<void> {
+  const { to, formName, programName, formLink } = params
+  const subject = `Please update your submission for "${formName}"`
+  const text = [
+    `New questions have been added to "${formName}" (${programName}).`,
+    '',
+    `Please open the form and fill in the new questions when you have a moment.`,
+    '',
+    formLink
+      ? `Open form: ${formLink}`
+      : `Please reach out to your program coordinator for your form link.`,
+  ].join('\n')
+  const html = `
+<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 16px;color:#111;">
+  <h2 style="font-size:20px;margin-bottom:8px;">New questions added to your form</h2>
+  <p style="color:#555;">We've added new questions to <strong>${formName}</strong> (${programName}) and would appreciate your input.</p>
+  <p style="color:#555;font-size:14px;">Click below to open the form and fill in the new fields. Your previous answers are already saved.</p>
+  ${formLink ? `<a href="${formLink}" style="display:inline-block;background:#ea580c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0;">Open form</a><p style="font-size:12px;color:#aaa;margin-top:12px;">If the button doesn't work, copy this link: ${formLink}</p>` : ''}
+</body></html>`
+  await sendRawEmail(to, subject, text, html)
+}
+
 export async function sendReturnNotificationEmail(params: {
   to: string
   collaboratorEmail: string
