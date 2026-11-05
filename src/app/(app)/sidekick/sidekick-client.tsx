@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { useProgram } from '@/contexts/program-context'
 import { Button } from '@/components/ui/button'
 import { Sparkles, Send, RotateCcw, User } from 'lucide-react'
@@ -115,7 +115,8 @@ const STARTERS = [
 // Message bubble
 // ---------------------------------------------------------------------------
 
-function MessageBubble({ message }: { message: Message }) {
+// memo: finished messages don't re-render (or re-parse their markdown) while a new reply streams
+const MessageBubble = memo(function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user'
 
   return (
@@ -156,7 +157,7 @@ function MessageBubble({ message }: { message: Message }) {
       </div>
     </div>
   )
-}
+})
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -241,14 +242,22 @@ export function SidekickClient() {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let accumulated = ''
+      let lastFlush = 0
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
         accumulated += decoder.decode(value, { stream: true })
-        setMessages(prev =>
-          prev.map(m => m.id === assistantId ? { ...m, content: accumulated, streaming: true } : m)
-        )
+        // Throttle UI updates (~8/sec). Re-rendering on every network chunk floods the
+        // browser on long replies, which freezes scrolling until the reply finishes.
+        const now = performance.now()
+        if (now - lastFlush >= 120) {
+          lastFlush = now
+          const snapshot = accumulated
+          setMessages(prev =>
+            prev.map(m => m.id === assistantId ? { ...m, content: snapshot, streaming: true } : m)
+          )
+        }
       }
 
       // Finalize — remove streaming flag
@@ -312,7 +321,7 @@ export function SidekickClient() {
       </header>
 
       {/* Messages area — aria-live so screen readers announce new messages */}
-      <div ref={scrollContainerRef} onScroll={handleChatScroll} onWheel={handleChatWheel} onTouchMove={releaseStick} className="flex-1 overflow-y-auto overscroll-contain px-4 py-6" role="log" aria-label="Conversation" aria-live="polite" aria-atomic="false">
+      <div ref={scrollContainerRef} onScroll={handleChatScroll} onWheel={handleChatWheel} onTouchMove={releaseStick} className="flex-1 overflow-y-auto overscroll-contain px-4 py-6" role="log" aria-label="Conversation" aria-live={loading ? 'off' : 'polite'} aria-busy={loading} aria-atomic="false">
         <div className="mx-auto max-w-2xl space-y-5">
 
           {isEmpty ? (
@@ -322,7 +331,7 @@ export function SidekickClient() {
                 <Sparkles className="h-8 w-8 text-white" />
               </div>
               <h2 className="text-[20px] font-semibold text-gray-900 mb-2">
-                Hey! I'm your Evaluation Sidekick.
+                Hey! I&apos;m your Evaluation Sidekick.
               </h2>
               <p className="text-[14px] text-gray-500 max-w-md leading-relaxed">
                 Ask me anything about your program data — trends, comparisons, summaries, outliers.
