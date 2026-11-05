@@ -182,10 +182,21 @@ export function SidekickClient() {
   //   already grown, which is what caused the jumping.
   const stickToBottomRef = useRef(true)
 
+  // Re-lock to the bottom only when the user is truly at the bottom (24px). Any manual
+  // upward scroll (wheel / touch / keys) releases the lock immediately, so streaming
+  // text can never fight the user's scrolling.
   const handleChatScroll = useCallback(() => {
     const c = scrollContainerRef.current
     if (!c) return
-    stickToBottomRef.current = c.scrollHeight - c.scrollTop - c.clientHeight < 80
+    stickToBottomRef.current = c.scrollHeight - c.scrollTop - c.clientHeight < 24
+  }, [])
+
+  const releaseStick = useCallback(() => {
+    stickToBottomRef.current = false
+  }, [])
+
+  const handleChatWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.deltaY < 0) stickToBottomRef.current = false
   }, [])
 
   useEffect(() => {
@@ -301,7 +312,7 @@ export function SidekickClient() {
       </header>
 
       {/* Messages area — aria-live so screen readers announce new messages */}
-      <div ref={scrollContainerRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-6" role="log" aria-label="Conversation" aria-live="polite" aria-atomic="false">
+      <div ref={scrollContainerRef} onScroll={handleChatScroll} onWheel={handleChatWheel} onTouchMove={releaseStick} className="flex-1 overflow-y-auto overscroll-contain px-4 py-6" role="log" aria-label="Conversation" aria-live="polite" aria-atomic="false">
         <div className="mx-auto max-w-2xl space-y-5">
 
           {isEmpty ? (
