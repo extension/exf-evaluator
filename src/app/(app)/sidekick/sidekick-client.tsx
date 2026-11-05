@@ -57,6 +57,38 @@ function renderMarkdown(text: string): React.ReactNode[] {
     if (h2) { nodes.push(<h3 key={i} className="text-[14px] font-semibold text-gray-800 mt-3 mb-1">{inlineFormat(h2[1])}</h3>); i++; continue }
     if (h3) { nodes.push(<h4 key={i} className="text-[13px] font-semibold text-gray-700 mt-2 mb-0.5">{inlineFormat(h3[1])}</h4>); i++; continue }
 
+    // Table (| a | b | with a |---|---| separator row)
+    if (line.trim().startsWith('|') && i + 1 < lines.length && /^\s*\|[\s:|-]+\|?\s*$/.test(lines[i + 1])) {
+      const splitRow = (r: string) =>
+        r.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(c => c.replace(/\\\|/g, '|').trim())
+      const header = splitRow(line)
+      i += 2
+      const body: string[][] = []
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        body.push(splitRow(lines[i]))
+        i++
+        // tolerate stray blank lines between rows
+        while (i < lines.length && !lines[i].trim() && i + 1 < lines.length && lines[i + 1].trim().startsWith('|')) i++
+      }
+      nodes.push(
+        <div key={`tbl-${i}`} className="my-2 overflow-x-auto">
+          <table className="min-w-full border-collapse text-[12px] text-gray-700">
+            <thead>
+              <tr>{header.map((h, c) => <th key={c} className="border-b border-gray-200 bg-gray-50 px-2 py-1 text-left font-semibold">{inlineFormat(h)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {body.map((r, ri) => (
+                <tr key={ri} className="border-b border-gray-100">
+                  {r.map((c, ci) => <td key={ci} className="px-2 py-1 align-top">{inlineFormat(c)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+      continue
+    }
+
     // Bullet list
     if (line.match(/^[-*] /)) {
       const items: React.ReactNode[] = []
@@ -73,7 +105,9 @@ function renderMarkdown(text: string): React.ReactNode[] {
       const items: React.ReactNode[] = []
       while (i < lines.length && lines[i].match(/^\d+\. /)) {
         const content = lines[i].replace(/^\d+\. /, '')
-        items.push(<li key={i} className="ml-4 list-decimal text-[13px] text-gray-700 leading-relaxed">{inlineFormat(content)}</li>)
+        // Keep the author's number so lists interrupted by sub-bullets don't restart at 1
+        const num = parseInt(lines[i], 10)
+        items.push(<li key={i} value={num} className="ml-4 list-decimal text-[13px] text-gray-700 leading-relaxed">{inlineFormat(content)}</li>)
         i++
       }
       nodes.push(<ol key={`ol-${i}`} className="my-2 space-y-0.5">{items}</ol>)
