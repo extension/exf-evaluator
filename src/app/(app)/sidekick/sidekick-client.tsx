@@ -174,29 +174,29 @@ export function SidekickClient() {
   const messageCountRef = useRef(0)
 
   // Scroll behaviour:
-  // - When a NEW message is added (count changes), scroll to bottom unconditionally.
-  // - During streaming (same count, content changing), only scroll if the user
-  //   is already near the bottom — so they can scroll up to read without being
-  //   yanked back down on every token.
+  // - Only the chat container is scrolled (never scrollIntoView, which also scrolls the
+  //   page and app layout and makes the whole screen jump while a reply streams).
+  // - A NEW message always scrolls to the bottom.
+  // - While streaming, follow only if the user hasn't scrolled up. That decision is
+  //   tracked in onScroll (stickToBottomRef) rather than measured after the text has
+  //   already grown, which is what caused the jumping.
+  const stickToBottomRef = useRef(true)
+
+  const handleChatScroll = useCallback(() => {
+    const c = scrollContainerRef.current
+    if (!c) return
+    stickToBottomRef.current = c.scrollHeight - c.scrollTop - c.clientHeight < 80
+  }, [])
+
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
 
-    const newCount = messages.length
-    const isNewMessage = newCount !== messageCountRef.current
-    messageCountRef.current = newCount
+    const isNewMessage = messages.length !== messageCountRef.current
+    messageCountRef.current = messages.length
 
-    if (isNewMessage) {
-      // New message added — always scroll to bottom, instant (no smooth jitter)
-      bottomRef.current?.scrollIntoView({ behavior: 'instant' })
-      return
-    }
-
-    // Streaming update — only follow if already within 120px of the bottom
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-    if (distanceFromBottom < 120) {
-      bottomRef.current?.scrollIntoView({ behavior: 'instant' })
-    }
+    if (isNewMessage) stickToBottomRef.current = true
+    if (stickToBottomRef.current) container.scrollTop = container.scrollHeight
   }, [messages])
 
   const sendMessage = useCallback(async (text: string) => {
@@ -279,7 +279,7 @@ export function SidekickClient() {
   const isEmpty = messages.length === 0
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gray-50">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-gray-50">
       {/* Header */}
       <header className="flex h-14 flex-shrink-0 items-center justify-between border-b bg-white px-6">
         <div className="flex items-center gap-2.5">
@@ -301,7 +301,7 @@ export function SidekickClient() {
       </header>
 
       {/* Messages area — aria-live so screen readers announce new messages */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-6" role="log" aria-label="Conversation" aria-live="polite" aria-atomic="false">
+      <div ref={scrollContainerRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-6" role="log" aria-label="Conversation" aria-live="polite" aria-atomic="false">
         <div className="mx-auto max-w-2xl space-y-5">
 
           {isEmpty ? (
