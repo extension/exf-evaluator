@@ -13,6 +13,9 @@
  *    in code, so the model reports finished numbers instead of adding by hand.
  */
 import type { FormField } from '@/types/forms'
+import { MONTH_ABBR, parsePeriod, isPeriodLabel, type Period } from '@/lib/periods'
+
+export { parsePeriod }
 
 export interface SubmissionRow {
   id: string
@@ -72,64 +75,10 @@ function fieldLabel(f: FormField): string {
 // Reporting periods
 // ---------------------------------------------------------------------------
 
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function monthIndex(name: string): number {
-  return MONTH_ABBR.findIndex(m => m.toLowerCase() === name.slice(0, 3).toLowerCase())
-}
-
-export interface Period {
-  key: string
-  sort: number
-  display: string
-  kind: 'month' | 'quarter' | 'date'
-  /** months since year 0 (year*12 + monthIndex) of the first / last month covered, when known */
-  startMonth?: number
-  endMonth?: number
-}
-
-export function parsePeriod(raw: unknown): Period | null {
-  if (typeof raw !== 'string') return null
-  const label = raw.trim()
-  if (!label) return null
-
-  // "Sept. 2025", "April 2026", "Jul 2025"
-  let m = label.match(/^([A-Za-z]{3,9})\.?\s+(\d{4})$/)
-  if (m) {
-    const mi = monthIndex(m[1])
-    if (mi >= 0) {
-      const idx = Number(m[2]) * 12 + mi
-      return { key: `m${idx}`, sort: idx, display: `${MONTH_ABBR[mi]} ${m[2]}`, kind: 'month', startMonth: idx, endMonth: idx }
-    }
-  }
-
-  // "Q1 (July-Sept. 2025)", "Q2 (Oct. - Dec. 2025)", "Q4 (Apr-June 2026)"
-  m = label.match(/^Q(\d+)\s*\(\s*([A-Za-z]+)\.?\s*-\s*([A-Za-z]+)\.?\s*(\d{4})\s*\)/)
-  if (m) {
-    const sm = monthIndex(m[2])
-    const em = monthIndex(m[3])
-    if (sm >= 0 && em >= 0) {
-      const year = Number(m[4])
-      const endMonth = year * 12 + em
-      const startMonth = (sm <= em ? year : year - 1) * 12 + sm
-      return { key: `q${endMonth}`, sort: endMonth, display: label, kind: 'quarter', startMonth, endMonth }
-    }
-  }
-
-  // "Q4 2026"
-  m = label.match(/^Q(\d)\s+(\d{4})$/)
-  if (m) {
-    const sort = Number(m[2]) * 12 + Number(m[1]) * 3
-    return { key: `q${sort}`, sort, display: label, kind: 'quarter' }
-  }
-
-  return null
-}
-
 /** Find the field that holds the reporting period (Month / Quarter / Period) */
 function findPeriodField(form: FormMeta, rows: SubmissionRow[]): FormField | null {
   const candidates = form.fields.filter(f =>
-    /^(reporting\s+)?(month|quarter|period)$/i.test(fieldLabel(f)) &&
+    isPeriodLabel(fieldLabel(f)) &&
     ([...CHOICE_TYPES, ...TEXT_TYPES] as string[]).includes(f.type),
   )
   for (const f of candidates) {
@@ -166,7 +115,8 @@ function groupByPeriod(rows: SubmissionRow[], periodField: FormField | null): Pe
     g.rows.push(row)
     map.set(p.key, g)
   }
-  return [...map.values()].sort((a, b) => a.period.sort - b.period.sort || a.period.display.localeCompare(b.period.display))
+  // Array.sort is stable, so periods with equal sort keys (e.g. unrecognised labels) keep first-seen order
+  return [...map.values()].sort((a, b) => a.period.sort - b.period.sort)
 }
 
 // ---------------------------------------------------------------------------
@@ -661,6 +611,37 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
   return L.join('\n')
 }
 
+
+/** Flag data problems the model should mention instead of silently reporting around them */
+function dataHealthNotes(forms: FormMeta[], submissions: SubmissionRow[]): string[] {
+  const notes: string[] = []
+  const withRows = forms.filter(f => submissions.some(s => s.form_id === f.id))
+
+  // Forms that look like duplicate imports of each other (same questions)
+  const bySignature = new Map<string, FormMeta[]>()
+  for (const f of withRows) {
+    const sig = f.fields.filter(x => !NON_DATA_TYPES.includes(x.type)).map(fieldLabel).join('|')
+    if (f.fields.length >= 5) bySignature.set(sig, [...(bySignature.get(sig) ?? []), f])
+  }
+  for (const group of bySignature.values()) {
+    if (group.length > 1) notes.push(`Forms ${group.map(g => `"${g.name}"`).join(' and ')} have identical questions — they may be duplicate imports, so combined totals could double count.`)
+  }
+
+  // Period answers that could not be read as a month/quarter
+  for (const f of withRows) {
+    const rows = submissions.filter(s => s.form_id === f.id)
+    const pf = f.fields.find(x => isPeriodLabel(fieldLabel(x)))
+    if (!pf) continue
+    const bad = new Set<string>()
+    for (const r of rows) {
+      const v = r.data[pf.id]
+      if (typeof v === 'string' && v.trim() && !parsePeriod(v)) bad.add(v.trim())
+    }
+    if (bad.size) notes.push(`Form "${f.name}": period answers not recognised as a month/quarter (shown in first-seen order, not date order): ${[...bad].slice(0, 6).join('; ')}`)
+  }
+  return notes
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
@@ -672,6 +653,9 @@ export function buildContext(programName: string, forms: FormMeta[], submissions
     `TOTAL SUBMISSIONS: ${submissions.length}`,
     '',
   ]
+
+  const health = dataHealthNotes(forms, submissions)
+  if (health.length) lines.push('DATA HEALTH NOTES (mention these to the user when relevant):', ...health.map(h => `  - ${h}`), '')
 
   const rollups = buildExciteRollups(forms, submissions)
   if (rollups) lines.push(rollups)

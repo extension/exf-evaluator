@@ -1,3 +1,4 @@
+import { parsePeriod, periodEndDate, isPeriodLabel } from '@/lib/periods'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
@@ -45,6 +46,21 @@ function normalizeNumeric(raw: string): number | string {
  * Data-only import: insert submissions into an EXISTING form.
  * column_mappings contains { csvColumn: formFieldId } plus _* internal keys.
  */
+/**
+ * Per-row submission date. If the row has a Month/Quarter answer (column named
+ * "Month", "Quarter" or "Period") the date is the end of that period, so a row never
+ * carries the wrong month because of the import-level period setting.
+ */
+function rowSubmittedAt(row: Record<string, string>, fallbackIso: string): string {
+  for (const [col, val] of Object.entries(row)) {
+    if (!isPeriodLabel(col)) continue
+    const p = parsePeriod(val)
+    const end = p ? periodEndDate(p) : null
+    if (end) return new Date(`${end}T12:00:00Z`).toISOString()
+  }
+  return fallbackIso
+}
+
 async function importDataToExistingForm(
   service: ReturnType<typeof createServiceClient>,
   job: { id: string; program_id: string; row_count: number | null; preview_data: Json | null },
@@ -84,7 +100,7 @@ async function importDataToExistingForm(
       form_id: targetFormId,
       data: data as unknown as Json,
       status: 'submitted' as const,
-      submitted_at: submittedAt,
+      submitted_at: rowSubmittedAt(row, submittedAt),
       submitted_by: userId,
       respondent_email: respondentEmail || null,
       metadata: { importJobId: job.id, importedRow: true } as unknown as Json,
@@ -183,7 +199,7 @@ async function createFormFromImport(
         form_id: createdForm.id,
         data: data as unknown as Json,
         status: 'submitted' as const,
-        submitted_at: submittedAt,
+        submitted_at: rowSubmittedAt(row, submittedAt),
         submitted_by: userId,
         respondent_email: respondentEmail || null,
         metadata: { importJobId: job.id, importedRow: true } as unknown as Json,
