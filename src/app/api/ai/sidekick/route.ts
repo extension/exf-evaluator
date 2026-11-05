@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import type { FormSchema, FormField } from '@/types/forms'
+import type { FormSchema } from '@/types/forms'
+import { buildContext, type FormMeta, type SubmissionRow } from '@/lib/sidekick-context'
 
 const client = new Anthropic()
 
@@ -16,208 +17,29 @@ const schema = z.object({
   messages: z.array(messageSchema).min(1),
 })
 
-// ---------------------------------------------------------------------------
-// Data aggregation helpers
-// ---------------------------------------------------------------------------
-
-interface SubmissionRow {
-  id: string
-  submitted_at: string | null
-  data: Record<string, unknown>
-  form_id: string
-}
-
-interface FormMeta {
-  id: string
-  name: string
-  fields: FormField[]
-  settings: Record<string, unknown>
-}
-
-/** Group submission rows by calendar month (YYYY-MM) */
-function groupByMonth(rows: SubmissionRow[]): Map<string, SubmissionRow[]> {
-  const map = new Map<string, SubmissionRow[]>()
-  for (const row of rows) {
-    const key = (row.submitted_at ?? '').slice(0, 7) || 'unknown'
-    const bucket = map.get(key) ?? []
-    bucket.push(row)
-    map.set(key, bucket)
-  }
-  return map
-}
-
-/** Compute numeric stats for an array of values */
-function numStats(vals: number[]) {
-  if (!vals.length) return null
-  const sum = vals.reduce((a, b) => a + b, 0)
-  const avg = sum / vals.length
-  const min = Math.min(...vals)
-  const max = Math.max(...vals)
-  return { count: vals.length, sum: Math.round(sum * 100) / 100, avg: Math.round(avg * 100) / 100, min, max }
-}
-
-/** Build a concise, AI-ready context document from program data */
-function buildContext(
-  programName: string,
-  forms: FormMeta[],
-  submissions: SubmissionRow[],
-): string {
-  const lines: string[] = [
-    `PROGRAM: ${programName}`,
-    `TOTAL FORMS: ${forms.length}`,
-    `TOTAL SUBMISSIONS: ${submissions.length}`,
-    '',
-  ]
-
-  // Overall date range
-  const dates = submissions.map(s => s.submitted_at).filter(Boolean).sort() as string[]
-  if (dates.length) {
-    lines.push(`DATA RANGE: ${dates[0].slice(0, 10)} → ${dates[dates.length - 1].slice(0, 10)}`)
-    lines.push('')
-  }
-
-  // Per-form breakdown
-  for (const form of forms) {
-    const formRows = submissions.filter(s => s.form_id === form.id)
-    if (!formRows.length) continue
-
-    const periodLabel = (() => {
-      const s = form.settings
-      if (s.periodValue) return ` [Period: ${s.periodValue}]`
-      if (s.periodStart && s.periodEnd) return ` [${s.periodStart} – ${s.periodEnd}]`
-      return ''
-    })()
-
-    lines.push(`--- FORM: "${form.name}"${periodLabel} (${formRows.length} submissions) ---`)
-
-    // Group by month for trend data
-    const byMonth = groupByMonth(formRows)
-    const sortedMonths = [...byMonth.keys()].sort()
-
-    for (const field of form.fields) {
-      if ((field as unknown as Record<string, unknown>).hidden) continue
-      const label = field.label || field.id
-      const isNumeric = ['number', 'scale', 'rating', 'nps', 'slider'].includes(field.type)
-
-      if (isNumeric) {
-        // Monthly trend for numeric fields
-        lines.push(`  [${label}] (numeric)`)
-        for (const month of sortedMonths) {
-          const monthRows = byMonth.get(month) ?? []
-          const vals = monthRows
-            .map(r => Number(r.data[field.id]))
-            .filter(v => !isNaN(v) && v !== 0)
-          const stats = numStats(vals)
-          if (stats) {
-            lines.push(`    ${month}: n=${stats.count} sum=${stats.sum} avg=${stats.avg} min=${stats.min} max=${stats.max}`)
-          }
-        }
-        // Overall stats
-        const allVals = formRows
-          .map(r => Number(r.data[field.id]))
-          .filter(v => !isNaN(v) && v !== 0)
-        const overall = numStats(allVals)
-        if (overall) {
-          lines.push(`    OVERALL: n=${overall.count} sum=${overall.sum} avg=${overall.avg}`)
-        }
-      } else if (field.type === 'single_choice' || field.type === 'multiple_choice') {
-        // Value distribution
-        const dist: Record<string, number> = {}
-        for (const row of formRows) {
-          const val = row.data[field.id]
-          const choices = Array.isArray(val) ? val : [val]
-          for (const c of choices) {
-            if (c) dist[String(c)] = (dist[String(c)] ?? 0) + 1
-          }
-        }
-        const sorted = Object.entries(dist).sort((a, b) => b[1] - a[1]).slice(0, 10)
-        if (sorted.length) {
-          lines.push(`  [${label}] (choice): ${sorted.map(([v, n]) => `"${v}"=${n}`).join(', ')}`)
-        }
-      } else if (field.type === 'short_text' || field.type === 'long_text') {
-        // Sample responses (up to 5)
-        const samples = formRows
-          .map(r => r.data[field.id])
-          .filter(v => v && String(v).trim().length > 2)
-          .slice(0, 5)
-          .map(v => `"${String(v).slice(0, 120)}"`)
-        if (samples.length) {
-          lines.push(`  [${label}] (text samples): ${samples.join(' | ')}`)
-        }
-      }
-    }
-
-    // Cross-tabulation: numeric fields broken down by each choice field's values.
-    // This lets the AI answer "what was X for submissions tagged as Y?"
-    const choiceFields = form.fields.filter(f =>
-      (f.type === 'single_choice' || f.type === 'multiple_choice') &&
-      !(f as unknown as Record<string, unknown>).hidden
-    )
-    const numericFields = form.fields.filter(f =>
-      ['number', 'scale', 'rating', 'nps', 'slider'].includes(f.type) &&
-      !(f as unknown as Record<string, unknown>).hidden
-    )
-
-    if (choiceFields.length > 0 && numericFields.length > 0) {
-      for (const choiceField of choiceFields) {
-        // Collect all distinct choice values
-        const choiceValues = new Set<string>()
-        for (const row of formRows) {
-          const val = row.data[choiceField.id]
-          const choices = Array.isArray(val) ? val : [val]
-          for (const c of choices) { if (c) choiceValues.add(String(c)) }
-        }
-        if (choiceValues.size === 0 || choiceValues.size > 50) continue
-
-        const choiceLabel = choiceField.label || choiceField.id
-        lines.push(`  BREAKDOWN of numeric fields by [${choiceLabel}]:`)
-
-        for (const cv of [...choiceValues].sort()) {
-          const groupRows = formRows.filter(row => {
-            const val = row.data[choiceField.id]
-            const choices = Array.isArray(val) ? val : [val]
-            return choices.some(c => String(c) === cv)
-          })
-          const parts: string[] = []
-          for (const nf of numericFields) {
-            const vals = groupRows
-              .map(r => Number(r.data[nf.id]))
-              .filter(v => !isNaN(v) && v !== 0)
-            const stats = numStats(vals)
-            if (stats) {
-              parts.push(`[${nf.label || nf.id}] n=${stats.count} sum=${stats.sum} avg=${stats.avg}`)
-            }
-          }
-          if (parts.length) {
-            lines.push(`    "${cv}" (${groupRows.length} submissions): ${parts.join(' | ')}`)
-          }
-        }
-      }
-    }
-
-    lines.push('')
-  }
-
-  return lines.join('\n')
-}
-
 const SYSTEM_PROMPT = `You are the Evaluation Sidekick — a conversational AI analyst embedded inside a program evaluation platform. You have access to real submission data collected from program participants.
 
 Your role:
 - Answer questions about program data in a friendly, clear, conversational way
 - Identify trends, patterns, and comparisons across forms, fields, and time periods
 - When discussing numbers, be specific: cite actual values, dates, and counts from the data
-- When you see a trend, describe the direction and magnitude
-- Compare metrics when asked ("how does X compare to Y?")
-- Flag anything surprising or noteworthy in the data
 - Be concise — lead with the key finding, then provide supporting detail
-- Use bullet points and short paragraphs for readability
 - If the data doesn't contain something the user asked about, say so clearly and suggest what IS available
 
+How to use the data (important):
+- A "PRE-COMPUTED COMBINED REPORT" section may be present. Its totals are calculated by the system: quote them directly and NEVER re-add or re-derive them. Do not recompute totals from per-form lines when a pre-computed figure exists.
+- For "summary of all metrics" or CDC-style reporting, present events/activities AND reach together, combining Health Agents (HA, monthly) and Other Extension Professionals (OEP, quarterly) as HA | OEP | TOTAL — events, reach, curriculum delivery, and then results, partnerships and scholarly outputs. Cover every category, including "Other"; do not silently skip any.
+- Curriculum delivery: list EVERY curriculum with data. Some curricula report only completed programs / individuals completed (zero cohorts or sessions) — still include them.
+- If the user asks for monthly, quarterly, or both, give that view for ALL available periods, in chronological order, without skipping periods. HA data is monthly; OEP data is quarterly (roll HA up to quarters only via the pre-computed quarterly section).
+- Time periods come from each form's own Month/Quarter answer, not the upload date. Never invent periods that are not in the data.
+- Survey/results forms list one record per question. Never merge or average across different questions; when asked about a specific question or topic, report the record(s) for that question only, with its response options, counts and percentages. For "all results", present each question separately.
+- Partnerships, results and scholarly outputs are in the data too — report them when asked for "everything" or "all" metrics.
+- Zero is a real value. "answered by N of M submissions" means the rest left it blank.
+
 Data format notes:
-- Numeric fields show monthly stats: n=count, sum=total, avg=average
+- "(numeric) TOTAL=… | by period:" lines give the cumulative total and the total per reporting period
+- "RECORDS" sections list one submission per line
 - Date ranges are YYYY-MM or YYYY-MM-DD
-- "Period" labels (e.g. "Fall 2025") come from imported datasets
 
 You are not a generic chatbot. Only discuss program evaluation topics — redirect politely if asked about unrelated things.`
 
@@ -259,23 +81,31 @@ export async function POST(request: Request) {
       settings: (f.settings ?? {}) as Record<string, unknown>,
     }))
 
-    // Fetch submissions (cap at 2000)
+    // Fetch ALL submissions, paging past the API's per-request row limit
     const formIds = forms.map(f => f.id)
-    let submissions: SubmissionRow[] = []
+    const submissions: SubmissionRow[] = []
     if (formIds.length > 0) {
-      const { data: rawSubs } = await service
-        .from('submissions')
-        .select('id, form_id, submitted_at, data')
-        .in('form_id', formIds)
-        .eq('status', 'submitted')
-        .order('submitted_at', { ascending: true })
-        .limit(2000)
-      submissions = (rawSubs ?? []).map(s => ({
-        id: s.id,
-        form_id: s.form_id,
-        submitted_at: s.submitted_at,
-        data: s.data as Record<string, unknown>,
-      }))
+      const PAGE = 1000
+      for (let from = 0; from < 50000; from += PAGE) {
+        const { data: page, error: pageError } = await service
+          .from('submissions')
+          .select('id, form_id, submitted_at, data')
+          .in('form_id', formIds)
+          .eq('status', 'submitted')
+          .order('submitted_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1)
+        if (pageError) throw new Error(pageError.message)
+        for (const s of page ?? []) {
+          submissions.push({
+            id: s.id,
+            form_id: s.form_id,
+            submitted_at: s.submitted_at,
+            data: (s.data ?? {}) as Record<string, unknown>,
+          })
+        }
+        if (!page || page.length < PAGE) break
+      }
     }
 
     const context = buildContext(program.name, forms, submissions)
@@ -335,7 +165,7 @@ export async function POST(request: Request) {
           await client.messages
             .stream({
               model: 'claude-sonnet-4-5',
-              max_tokens: 2048,
+              max_tokens: 8192,
               system: SYSTEM_PROMPT,
               messages: anthropicMessages,
             })
