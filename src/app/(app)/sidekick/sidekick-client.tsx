@@ -332,8 +332,11 @@ export function SidekickClient() {
 
   const isEmpty = messages.length === 0
 
+  // Fixed height = viewport minus the app footer (~48px) so the chat box, not the whole
+  // page, is what scrolls. The shared layout wrapper has no definite height, so h-full
+  // does not work here.
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-gray-50">
+    <div className="flex h-[calc(100dvh-48px)] flex-col overflow-hidden bg-gray-50">
       {/* Header */}
       <header className="flex h-14 flex-shrink-0 items-center justify-between border-b bg-white px-6">
         <div className="flex items-center gap-2.5">
