@@ -436,9 +436,35 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
   const oep = load('OEPVL Reach')
   if (!ha && !oep) return ''
 
+  const instOf = (src: Source | null, row: SubmissionRow): string => {
+    const f = src?.form.fields.find(x => /^(please select your )?institution$/i.test(fieldLabel(x)))
+    const v = f ? row.data[f.id] : null
+    return typeof v === 'string' && v.trim() ? v.trim() : 'Unknown institution'
+  }
+
+  /** "Top contributors" text for a set of rows: institutions ranked by events and by reach */
+  const topContributors = (
+    sources: Array<{ src: Source | null; rows: SubmissionRow[]; ev: Metric[]; re: Metric[] }>,
+  ): string => {
+    const tot = new Map<string, { e: number; r: number }>()
+    for (const { src, rows, ev, re } of sources) {
+      if (!src) continue
+      const by = new Map<string, SubmissionRow[]>()
+      for (const row of rows) { const k = instOf(src, row); by.set(k, [...(by.get(k) ?? []), row]) }
+      for (const [k, rs] of by) {
+        const cur = tot.get(k) ?? { e: 0, r: 0 }
+        cur.e += totalOf(ev, metricTotals(src, ev, rs))
+        cur.r += totalOf(re, metricTotals(src, re, rs))
+        tot.set(k, cur)
+      }
+    }
+    const rank = (key: 'e' | 'r') => [...tot.entries()].filter(([, v]) => v[key] > 0).sort((a, b) => b[1][key] - a[1][key]).slice(0, 3).map(([k, v]) => `${k} (${fmt(v[key])})`).join('; ')
+    return `top reach contributors: ${rank('r') || 'none'} | top events contributors: ${rank('e') || 'none'}`
+  }
+
   const L: string[] = []
-  const quarterTotals: Array<{ label: string; events: number; reach: number }> = []
-  const monthTotals: Array<{ label: string; events: number; reach: number }> = []
+  const quarterTotals: Array<{ label: string; events: number; reach: number; who?: string }> = []
+  const monthTotals: Array<{ label: string; events: number; reach: number; who?: string }> = []
   L.push('=== PRE-COMPUTED COMBINED REPORT: HEALTH AGENTS (HA, reported monthly) + OTHER EXTENSION PROFESSIONALS (OEP, reported quarterly) ===')
   L.push('These totals were calculated by the system from every submission (zeros included). Quote them directly; do NOT re-add or re-derive them.')
   L.push('This mirrors the program workbook\'s "HA & OEP Summary": events/activities AND reach together, HA | OEP | TOTAL. Always report every category, including "Other".')
@@ -470,7 +496,7 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
       const e = metricTotals(ha, HA_EVENTS, g.rows)
       const r = metricTotals(ha, HA_REACH, g.rows)
       L.push(`${g.period.display} (${g.rows.length} HA reports): EVENTS: ${listNonZero(HA_EVENTS, e)}; TOTAL EVENTS=${fmt(totalOf(HA_EVENTS, e))} || REACH: ${listNonZero(HA_REACH, r)}; TOTAL REACH=${fmt(totalOf(HA_REACH, r))}`)
-      monthTotals.push({ label: g.period.display, events: totalOf(HA_EVENTS, e), reach: totalOf(HA_REACH, r) })
+      monthTotals.push({ label: g.period.display, events: totalOf(HA_EVENTS, e), reach: totalOf(HA_REACH, r), who: topContributors([{ src: ha, rows: g.rows, ev: HA_EVENTS, re: HA_REACH }]) })
     }
     L.push('')
   }
@@ -493,14 +519,14 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
       L.push(`  OEP events: ${listNonZero(OEP_EVENTS, oE)}; TOTAL=${fmt(totalOf(OEP_EVENTS, oE))} | OEP reach: ${listNonZero(OEP_REACH, oR)}; TOTAL=${fmt(totalOf(OEP_REACH, oR))}`)
       L.push(`  OEP professional development reach: ${listNonZero(OEP_PD, pd)}`)
       L.push(`  COMBINED: events=${fmt(totalOf(HA_EVENTS, hE) + totalOf(OEP_EVENTS, oE))}, reach=${fmt(totalOf(HA_REACH, hR) + totalOf(OEP_REACH, oR))}`)
-      quarterTotals.push({ label: q.display, events: totalOf(HA_EVENTS, hE) + totalOf(OEP_EVENTS, oE), reach: totalOf(HA_REACH, hR) + totalOf(OEP_REACH, oR) })
+      quarterTotals.push({ label: q.display, events: totalOf(HA_EVENTS, hE) + totalOf(OEP_EVENTS, oE), reach: totalOf(HA_REACH, hR) + totalOf(OEP_REACH, oR), who: topContributors([{ src: ha, rows: haRows, ev: HA_EVENTS, re: HA_REACH }, { src: oep, rows: oepRows, ev: OEP_EVENTS, re: OEP_REACH }]) })
     }
     L.push('')
   }
 
 
   // ---- Trends: period-over-period change, running totals, peaks
-  const trend = (title: string, rows: Array<{ label: string; events: number; reach: number }>) => {
+  const trend = (title: string, rows: Array<{ label: string; events: number; reach: number; who?: string }>) => {
     if (rows.length < 2) return
     L.push(`-- ${title} --`)
     let runE = 0, runR = 0
@@ -509,22 +535,29 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
       const pct = (cur: number, prev: number) => (prev ? `${cur - prev >= 0 ? '+' : ''}${round2(((cur - prev) / prev) * 100)}%` : 'n/a')
       const dE = i ? `${x.events - rows[i - 1].events >= 0 ? '+' : ''}${fmt(x.events - rows[i - 1].events)} (${pct(x.events, rows[i - 1].events)})` : 'first period'
       const dR = i ? `${x.reach - rows[i - 1].reach >= 0 ? '+' : ''}${fmt(x.reach - rows[i - 1].reach)} (${pct(x.reach, rows[i - 1].reach)})` : 'first period'
-      L.push(`  ${x.label}: events=${fmt(x.events)} [change ${dE}; running total ${fmt(runE)}] | reach=${fmt(x.reach)} [change ${dR}; running total ${fmt(runR)}]`)
+      L.push(`  ${x.label}: events=${fmt(x.events)} [change ${dE}; running total ${fmt(runE)}] | reach=${fmt(x.reach)} [change ${dR}; running total ${fmt(runR)}]${x.who ? ` | WHO DROVE IT — ${x.who}` : ''}`)
     })
     const topE = [...rows].sort((a, b) => b.events - a.events)[0]
     const topR = [...rows].sort((a, b) => b.reach - a.reach)[0]
     L.push(`  PEAK by events: ${topE.label} (${fmt(topE.events)}); PEAK by reach: ${topR.label} (${fmt(topR.reach)})`)
+    // Biggest rises and falls, ranked by absolute change (and % alongside)
+    const changes = rows.slice(1).map((x, i) => ({
+      label: `${rows[i].label} → ${x.label}`,
+      dE: x.events - rows[i].events, dR: x.reach - rows[i].reach,
+      pE: rows[i].events ? ((x.events - rows[i].events) / rows[i].events) * 100 : 0,
+      pR: rows[i].reach ? ((x.reach - rows[i].reach) / rows[i].reach) * 100 : 0,
+    }))
+    const best = (key: 'dE' | 'dR', dir: 1 | -1) => [...changes].sort((a, b) => dir * (b[key] - a[key]))[0]
+    const sg = (n: number) => `${n >= 0 ? '+' : ''}${fmt(n)}`
+    const bUpE = best('dE', 1), bDnE = best('dE', -1), bUpR = best('dR', 1), bDnR = best('dR', -1)
+    L.push(`  BIGGEST INCREASE in events: ${bUpE.label} (${sg(bUpE.dE)}, ${sg(round2(bUpE.pE))}%); BIGGEST DROP in events: ${bDnE.label} (${sg(bDnE.dE)}, ${sg(round2(bDnE.pE))}%)`)
+    L.push(`  BIGGEST INCREASE in reach: ${bUpR.label} (${sg(bUpR.dR)}, ${sg(round2(bUpR.pR))}%); BIGGEST DROP in reach: ${bDnR.label} (${sg(bDnR.dR)}, ${sg(round2(bDnR.pR))}%)`)
     L.push('')
   }
   trend('MONTH-OVER-MONTH TREND (HA only)', monthTotals)
   trend('QUARTER-OVER-QUARTER TREND (HA + OEP combined)', quarterTotals)
 
   // ---- By institution (cumulative HA + OEP, rankings) and by institution per period
-  const instOf = (src: Source | null, row: SubmissionRow): string => {
-    const f = src?.form.fields.find(x => /^(please select your )?institution$/i.test(fieldLabel(x)))
-    const v = f ? row.data[f.id] : null
-    return typeof v === 'string' && v.trim() ? v.trim() : 'Unknown institution'
-  }
   const byInst = new Map<string, { ha: SubmissionRow[]; oep: SubmissionRow[] }>()
   for (const r of ha?.rows ?? []) { const k = instOf(ha, r); const e = byInst.get(k) ?? { ha: [], oep: [] }; e.ha.push(r); byInst.set(k, e) }
   for (const r of oep?.rows ?? []) { const k = instOf(oep, r); const e = byInst.get(k) ?? { ha: [], oep: [] }; e.oep.push(r); byInst.set(k, e) }
@@ -550,16 +583,40 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
     L.push(`  TOP 5 INSTITUTIONS by reach: ${top('reach')}`)
     L.push('')
 
+    // Top 5 institutions for EVERY individual metric (HA + OEP combined; zeros excluded)
+    const metricRank = (title: string, haM: Metric[], oepM: Metric[]) => {
+      L.push(`-- ${title} (top 5 institutions per metric, HA + OEP combined; institutions with 0 are not ranked) --`)
+      haM.forEach((m, mi) => {
+        const rows = [...byInst.entries()].map(([name, v]) => ({
+          name,
+          val: metricTotals(ha, haM, v.ha)[mi] + metricTotals(oep, oepM, v.oep)[mi],
+        })).filter(x => x.val > 0).sort((a, b) => b.val - a.val)
+        const list = rows.slice(0, 5).map((x, n) => `${n + 1}. ${x.name} (${fmt(x.val)})`).join('; ')
+        L.push(`  ${m.name}: ${list || 'nobody reported any'}${rows.length > 5 ? ` [${rows.length} institutions reported >0]` : ''}`)
+      })
+      L.push('')
+    }
+    metricRank('RANKINGS BY EVENT TYPE', HA_EVENTS, OEP_EVENTS)
+    metricRank('RANKINGS BY REACH TYPE', HA_REACH, OEP_REACH)
+
     const perInstPeriod = (src: Source | null, evM: Metric[], reM: Metric[], label: string) => {
       if (!src) return
-      L.push(`-- BY INSTITUTION AND PERIOD (${label}; only institutions with activity that period) --`)
+      L.push(`-- BY INSTITUTION AND PERIOD (${label}; grouped by institution — find an institution, then the period) --`)
+      const per = new Map<string, Array<{ period: string; rows: SubmissionRow[] }>>()
       for (const g of src.groups) {
-        const per = new Map<string, SubmissionRow[]>()
-        for (const r of g.rows) { const k = instOf(src, r); per.set(k, [...(per.get(k) ?? []), r]) }
-        for (const [name, rows] of [...per.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-          const e = metricTotals(src, evM, rows), r2 = metricTotals(src, reM, rows)
-          if (!e.some(Boolean) && !r2.some(Boolean)) continue
-          L.push(`  ${g.period.display} | ${name}: events=${fmt(totalOf(evM, e))} (${listNonZero(evM, e)}); reach=${fmt(totalOf(reM, r2))} (${listNonZero(reM, r2)})`)
+        const inGroup = new Map<string, SubmissionRow[]>()
+        for (const r of g.rows) { const k = instOf(src, r); inGroup.set(k, [...(inGroup.get(k) ?? []), r]) }
+        for (const [name, rows] of inGroup) per.set(name, [...(per.get(name) ?? []), { period: g.period.display, rows }])
+      }
+      for (const [name, periods] of [...per.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+        L.push(`  ${name} — ${label} reports received for: ${periods.map(x => x.period).join(', ')}`)
+        for (const x of periods) {
+          const e = metricTotals(src, evM, x.rows), r2 = metricTotals(src, reM, x.rows)
+          if (!e.some(Boolean) && !r2.some(Boolean)) {
+            L.push(`    ${x.period}: report submitted, no activity reported`)
+          } else {
+            L.push(`    ${x.period}: events=${fmt(totalOf(evM, e))} (${listNonZero(evM, e)}); reach=${fmt(totalOf(reM, r2))} (${listNonZero(reM, r2)})`)
+          }
         }
       }
       L.push('')
@@ -591,6 +648,11 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
     L.push(`  ALL CURRICULA: OEP: ${line(tot.oep)}`)
     L.push(`  ALL CURRICULA: COMBINED: ${line(tot.ha.map((v, i) => v + tot.oep[i]))}`)
     L.push('  (Completion counts are meaningful even when cohorts/sessions are 0 — some programs only report completions.)')
+    const sumAll = (n: string, k: number) => cur(ha, haC, n)[k] + cur(oep, oepC, n)[k]
+    const completionsOnly = names.filter(n => sumAll(n, 0) === 0 && (sumAll(n, 3) > 0 || sumAll(n, 4) > 0))
+    const noActivity = names.filter(n => [0, 1, 2, 3, 4].every(k => sumAll(n, k) === 0))
+    L.push(`  CURRICULA WITH COMPLETIONS BUT ZERO COHORTS (HA + OEP combined): ${completionsOnly.length ? completionsOnly.map(n => `${n} (completed programs=${fmt(sumAll(n, 3))}, individuals completed=${fmt(sumAll(n, 4))})`).join('; ') : 'none'}`)
+    L.push(`  CURRICULA WITH NO ACTIVITY REPORTED AT ALL: ${noActivity.length ? noActivity.join('; ') : 'none'}`)
 
     const perPeriod = (src: Source | null, map: Map<string, Record<string, FormField>>, label: string) => {
       if (!src) return
