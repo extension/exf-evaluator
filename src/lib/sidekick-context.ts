@@ -487,6 +487,8 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
   if (!ha && !oep) return ''
 
   const L: string[] = []
+  const quarterTotals: Array<{ label: string; events: number; reach: number }> = []
+  const monthTotals: Array<{ label: string; events: number; reach: number }> = []
   L.push('=== PRE-COMPUTED COMBINED REPORT: HEALTH AGENTS (HA, reported monthly) + OTHER EXTENSION PROFESSIONALS (OEP, reported quarterly) ===')
   L.push('These totals were calculated by the system from every submission (zeros included). Quote them directly; do NOT re-add or re-derive them.')
   L.push('This mirrors the program workbook\'s "HA & OEP Summary": events/activities AND reach together, HA | OEP | TOTAL. Always report every category, including "Other".')
@@ -518,6 +520,7 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
       const e = metricTotals(ha, HA_EVENTS, g.rows)
       const r = metricTotals(ha, HA_REACH, g.rows)
       L.push(`${g.period.display} (${g.rows.length} HA reports): EVENTS: ${listNonZero(HA_EVENTS, e)}; TOTAL EVENTS=${fmt(totalOf(HA_EVENTS, e))} || REACH: ${listNonZero(HA_REACH, r)}; TOTAL REACH=${fmt(totalOf(HA_REACH, r))}`)
+      monthTotals.push({ label: g.period.display, events: totalOf(HA_EVENTS, e), reach: totalOf(HA_REACH, r) })
     }
     L.push('')
   }
@@ -540,8 +543,79 @@ function buildExciteRollups(forms: FormMeta[], submissions: SubmissionRow[]): st
       L.push(`  OEP events: ${listNonZero(OEP_EVENTS, oE)}; TOTAL=${fmt(totalOf(OEP_EVENTS, oE))} | OEP reach: ${listNonZero(OEP_REACH, oR)}; TOTAL=${fmt(totalOf(OEP_REACH, oR))}`)
       L.push(`  OEP professional development reach: ${listNonZero(OEP_PD, pd)}`)
       L.push(`  COMBINED: events=${fmt(totalOf(HA_EVENTS, hE) + totalOf(OEP_EVENTS, oE))}, reach=${fmt(totalOf(HA_REACH, hR) + totalOf(OEP_REACH, oR))}`)
+      quarterTotals.push({ label: q.display, events: totalOf(HA_EVENTS, hE) + totalOf(OEP_EVENTS, oE), reach: totalOf(HA_REACH, hR) + totalOf(OEP_REACH, oR) })
     }
     L.push('')
+  }
+
+
+  // ---- Trends: period-over-period change, running totals, peaks
+  const trend = (title: string, rows: Array<{ label: string; events: number; reach: number }>) => {
+    if (rows.length < 2) return
+    L.push(`-- ${title} --`)
+    let runE = 0, runR = 0
+    rows.forEach((x, i) => {
+      runE += x.events; runR += x.reach
+      const pct = (cur: number, prev: number) => (prev ? `${cur - prev >= 0 ? '+' : ''}${round2(((cur - prev) / prev) * 100)}%` : 'n/a')
+      const dE = i ? `${x.events - rows[i - 1].events >= 0 ? '+' : ''}${fmt(x.events - rows[i - 1].events)} (${pct(x.events, rows[i - 1].events)})` : 'first period'
+      const dR = i ? `${x.reach - rows[i - 1].reach >= 0 ? '+' : ''}${fmt(x.reach - rows[i - 1].reach)} (${pct(x.reach, rows[i - 1].reach)})` : 'first period'
+      L.push(`  ${x.label}: events=${fmt(x.events)} [change ${dE}; running total ${fmt(runE)}] | reach=${fmt(x.reach)} [change ${dR}; running total ${fmt(runR)}]`)
+    })
+    const topE = [...rows].sort((a, b) => b.events - a.events)[0]
+    const topR = [...rows].sort((a, b) => b.reach - a.reach)[0]
+    L.push(`  PEAK by events: ${topE.label} (${fmt(topE.events)}); PEAK by reach: ${topR.label} (${fmt(topR.reach)})`)
+    L.push('')
+  }
+  trend('MONTH-OVER-MONTH TREND (HA only)', monthTotals)
+  trend('QUARTER-OVER-QUARTER TREND (HA + OEP combined)', quarterTotals)
+
+  // ---- By institution (cumulative HA + OEP, rankings) and by institution per period
+  const instOf = (src: Source | null, row: SubmissionRow): string => {
+    const f = src?.form.fields.find(x => /^(please select your )?institution$/i.test(fieldLabel(x)))
+    const v = f ? row.data[f.id] : null
+    return typeof v === 'string' && v.trim() ? v.trim() : 'Unknown institution'
+  }
+  const byInst = new Map<string, { ha: SubmissionRow[]; oep: SubmissionRow[] }>()
+  for (const r of ha?.rows ?? []) { const k = instOf(ha, r); const e = byInst.get(k) ?? { ha: [], oep: [] }; e.ha.push(r); byInst.set(k, e) }
+  for (const r of oep?.rows ?? []) { const k = instOf(oep, r); const e = byInst.get(k) ?? { ha: [], oep: [] }; e.oep.push(r); byInst.set(k, e) }
+  if (byInst.size > 1) {
+    const curFields = (src: Source | null, key: string) => [...curriculumOf(src).values()].map(r => r[key]).filter(Boolean)
+    const sumCur = (src: Source | null, rows: SubmissionRow[], key: string) => curFields(src, key).reduce((a, f) => a + sumField(rows, f), 0)
+    const inst = [...byInst.entries()].map(([name, v]) => {
+      const hE = totalOf(HA_EVENTS, metricTotals(ha, HA_EVENTS, v.ha)), oE = totalOf(OEP_EVENTS, metricTotals(oep, OEP_EVENTS, v.oep))
+      const hR = totalOf(HA_REACH, metricTotals(ha, HA_REACH, v.ha)), oR = totalOf(OEP_REACH, metricTotals(oep, OEP_REACH, v.oep))
+      return {
+        name, hE, oE, hR, oR, events: hE + oE, reach: hR + oR,
+        attendees: sumCur(ha, v.ha, 'Attendees') + sumCur(oep, v.oep, 'Attendees'),
+        completed: sumCur(ha, v.ha, 'Individuals Completed') + sumCur(oep, v.oep, 'Individuals Completed'),
+        reports: v.ha.length + v.oep.length,
+      }
+    }).sort((a, b) => a.name.localeCompare(b.name))
+    L.push('-- BY INSTITUTION (cumulative, HA + OEP combined) --')
+    for (const i of inst) {
+      L.push(`  ${i.name}: events HA=${fmt(i.hE)} | OEP=${fmt(i.oE)} | TOTAL=${fmt(i.events)}; reach HA=${fmt(i.hR)} | OEP=${fmt(i.oR)} | TOTAL=${fmt(i.reach)}; curriculum attendees=${fmt(i.attendees)}, individuals completed=${fmt(i.completed)}; reports submitted=${i.reports}`)
+    }
+    const top = (key: 'events' | 'reach') => [...inst].sort((a, b) => b[key] - a[key]).slice(0, 5).map((i, n) => `${n + 1}. ${i.name} (${fmt(i[key])})`).join('; ')
+    L.push(`  TOP 5 INSTITUTIONS by events: ${top('events')}`)
+    L.push(`  TOP 5 INSTITUTIONS by reach: ${top('reach')}`)
+    L.push('')
+
+    const perInstPeriod = (src: Source | null, evM: Metric[], reM: Metric[], label: string) => {
+      if (!src) return
+      L.push(`-- BY INSTITUTION AND PERIOD (${label}; only institutions with activity that period) --`)
+      for (const g of src.groups) {
+        const per = new Map<string, SubmissionRow[]>()
+        for (const r of g.rows) { const k = instOf(src, r); per.set(k, [...(per.get(k) ?? []), r]) }
+        for (const [name, rows] of [...per.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+          const e = metricTotals(src, evM, rows), r2 = metricTotals(src, reM, rows)
+          if (!e.some(Boolean) && !r2.some(Boolean)) continue
+          L.push(`  ${g.period.display} | ${name}: events=${fmt(totalOf(evM, e))} (${listNonZero(evM, e)}); reach=${fmt(totalOf(reM, r2))} (${listNonZero(reM, r2)})`)
+        }
+      }
+      L.push('')
+    }
+    perInstPeriod(ha, HA_EVENTS, HA_REACH, 'HA monthly')
+    perInstPeriod(oep, OEP_EVENTS, OEP_REACH, 'OEP quarterly')
   }
 
   // ---- Curriculum delivery
