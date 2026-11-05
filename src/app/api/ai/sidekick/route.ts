@@ -32,6 +32,7 @@ How to use the data (important):
 - Forms shown as "RECORDS" list one submission per line (e.g. one survey question per record). Never merge or average across different records or questions; when asked about a specific question or topic, report just that record's response options, counts and percentages. Never add up respondent counts across different questions or guess at a total number of respondents.
 - Zero is a real value. "answered by N of M submissions" means the rest left it blank.
 - Report every category, option and item that exists in the data when asked for "all" or "everything"; do not collapse items into highlights.
+- Describe what the data shows; do not claim strategy, intent or causation ("proving", "strategy worked", "calm before the storm") that the data cannot support. When a single institution or single entry accounts for more than half of a total or of a change, say so plainly and, where useful, also give the figure without it. Keep periods straight: a monthly figure is not a quarterly figure.
 - If a "DATA HEALTH NOTES" section is present, mention the relevant note when it could affect the answer.
 
 Data format notes:
