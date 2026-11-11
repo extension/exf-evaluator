@@ -22,6 +22,8 @@ export interface SubmissionRow {
   submitted_at: string | null
   data: Record<string, unknown>
   form_id: string
+  /** position of the row in the original import/spreadsheet, when known */
+  rowIndex?: number | null
 }
 
 export interface FormMeta {
@@ -149,6 +151,39 @@ function tally(vals: unknown[]): Array<[string, number]> {
   return Object.entries(dist).sort((a, b) => b[1] - a[1])
 }
 
+/**
+ * Fixed display orders. Choice values are listed in the order the program's framework /
+ * form defines, never by count, so every response lists things the same way.
+ */
+const KNOWN_ORDERS: string[][] = [
+  // Partnership engagement framework
+  ['None', 'Networking', 'Cooperation', 'Coordination', 'Coalition', 'Collaboration'],
+  ['Definitely will', 'Probably will', 'Not sure if I will', 'Probably will NOT', 'Definitely will NOT'],
+  ['Very important', 'Somewhat important', 'A little important', 'Not at all important'],
+  ['Very confident', 'Somewhat confident', 'Not at all confident'],
+  ['Completely safe', 'Very safe', 'Somewhat safe', 'Not at all safe'],
+  ['Strongly agree', 'Agree', 'Neutral', 'Disagree', 'Strongly disagree'],
+  ['New', 'Existing'],
+]
+
+/** Reorder [value, count] entries by the form's own option order, else a known framework order, else leave as is */
+function orderTally(entries: Array<[string, number]>, field?: FormField): Array<[string, number]> {
+  const norm = (v: string) => v.trim().toLowerCase()
+  let order: string[] | null = null
+  const opts = field?.options?.map(o => o.label || o.value).filter(Boolean)
+  if (opts && opts.length >= 2) order = opts
+  else {
+    const vals = entries.map(([v]) => norm(v))
+    order = KNOWN_ORDERS.find(o => vals.every(v => o.some(x => norm(x) === v))) ?? null
+  }
+  if (!order) return entries
+  const idx = (v: string) => {
+    const i = order!.findIndex(x => norm(x) === norm(v))
+    return i < 0 ? 1e6 : i
+  }
+  return [...entries].sort((a, b) => idx(a[0]) - idx(b[0]) || b[1] - a[1])
+}
+
 function formSection(form: FormMeta, formRows: SubmissionRow[]): string[] {
   const lines: string[] = []
   const s = form.settings
@@ -177,7 +212,9 @@ function formSection(form: FormMeta, formRows: SubmissionRow[]): string[] {
     const labelById = new Map(form.fields.map(f => [f.id, fieldLabel(f)]))
     let i = 0
     for (const g of groups) {
-      for (const row of g.rows) {
+      // keep the original spreadsheet order when the import recorded it
+      const ordered = g.rows.some(r => r.rowIndex != null) ? [...g.rows].sort((a, b) => (a.rowIndex ?? 1e9) - (b.rowIndex ?? 1e9)) : g.rows
+      for (const row of ordered) {
         i++
         const parts: string[] = []
         const seen = new Set<string>(periodField ? [periodField.id] : [])
@@ -230,7 +267,7 @@ function formSection(form: FormMeta, formRows: SubmissionRow[]): string[] {
     if (field === periodField || numericFields.includes(field)) continue
     const label = fieldLabel(field)
     if (CHOICE_TYPES.includes(field.type)) {
-      const sorted = tally(formRows.map(r => r.data[field.id])).slice(0, 60)
+      const sorted = orderTally(tally(formRows.map(r => r.data[field.id])), field).slice(0, 60)
       if (sorted.length) lines.push(`  [${label}] (choice counts): ${sorted.map(([v, n]) => `"${v}"=${n}`).join(', ')}`)
     } else if (field.type === 'matrix') {
       const rowsById = new Map((field.matrixRows ?? []).map(r => [r.id, r.label]))
@@ -270,7 +307,7 @@ function formSection(form: FormMeta, formRows: SubmissionRow[]): string[] {
   )
   if (!hasNumbers) {
     const small = choiceFields
-      .map(f => ({ f, vals: tally(formRows.map(r => r.data[f.id])) }))
+      .map(f => ({ f, vals: orderTally(tally(formRows.map(r => r.data[f.id])), f) }))
       .filter(x => x.vals.length >= 2 && x.vals.length <= 12)
     for (const { f, vals } of small) {
       const byPeriod = groups.map(g => {
@@ -287,7 +324,7 @@ function formSection(form: FormMeta, formRows: SubmissionRow[]): string[] {
         lines.push(`  CROSS-TAB [${fieldLabel(a.f)}] × [${fieldLabel(b.f)}]:`)
         for (const [av] of a.vals) {
           const rows = formRows.filter(r => tally([r.data[a.f.id]]).some(([x]) => x === av))
-          const t = tally(rows.map(r => r.data[b.f.id]))
+          const t = orderTally(tally(rows.map(r => r.data[b.f.id])), b.f)
           lines.push(`    "${av}" (${rows.length}): ${t.map(([v, n]) => `${v}=${n}`).join(', ')}`)
         }
       }

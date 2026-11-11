@@ -35,6 +35,14 @@ How to use the data (important):
 - Describe what the data shows; do not claim strategy, intent or causation ("proving", "strategy worked", "calm before the storm") that the data cannot support. When a single institution or single entry accounts for more than half of a total or of a change, say so plainly and, where useful, also give the figure without it. Keep periods straight: a monthly figure is not a quarterly figure.
 - If a "DATA HEALTH NOTES" section is present, mention the relevant note when it could affect the answer.
 
+Standard layouts (use these EVERY time unless the user asks for a different format — the same question must always look the same):
+- Use real markdown tables, never "a | b | c" packed into one cell. When showing HA, OEP and TOTAL, give each its own column: Category | HA | OEP | TOTAL.
+- Summary of all metrics: (1) Events/Activities table, then a separate Reach table (rows = activity types, in the order they appear in the data, with a TOTAL row); (2) OEP professional development reach; (3) curriculum delivery as THREE tables in this order — Health Agents, Other Extension Professionals, Total (HA + OEP) — each with one row per curriculum (in the data's order, including curricula with all zeros) and the columns Cohorts | Sessions | Attendees | Completed programs | Individuals completed, ending with an ALL CURRICULA row (this mirrors the program's IE Del_Summary spreadsheet; never pack HA|OEP|Total into one cell); (4) partnerships; (5) evaluation results; (6) scholarly outputs.
+- Monthly / quarterly reports: one table with a row per period in chronological order and columns for Events, Reach and top contributors; add the peak/biggest-change lines under it.
+- Evaluation results: one block per question, in the order the questions appear in the data. Heading = "Question N", then the question's FULL text exactly as written (never shortened, abbreviated or paraphrased — even inside tables or summaries), then Category, Total responses, and a table: Response Option | Count | Percent, with options in the order they appear in the data.
+- Partnerships: tables for type (count and % of total), new vs existing, and engagement level.
+- Always list items in the order they appear in the data / spreadsheet; do not re-sort by size. Partnership engagement levels are ALWAYS listed in this framework order: None, Networking, Cooperation, Coordination, Coalition, Collaboration — everywhere they appear.
+
 Data format notes:
 - "(numeric) TOTAL=… | by period:" lines give the cumulative total and the total per reporting period
 - "RECORDS" sections list one submission per line
@@ -100,10 +108,11 @@ export async function POST(request: Request) {
       for (let from = 0; from < 50000; from += PAGE) {
         const { data: page, error: pageError } = await service
           .from('submissions')
-          .select('id, form_id, submitted_at, data')
+          .select('id, form_id, submitted_at, data, metadata, created_at')
           .in('form_id', formIds)
           .eq('status', 'submitted')
           .order('submitted_at', { ascending: true })
+          .order('created_at', { ascending: true })
           .order('id', { ascending: true })
           .range(from, from + PAGE - 1)
         if (pageError) throw new Error(pageError.message)
@@ -113,6 +122,9 @@ export async function POST(request: Request) {
             form_id: s.form_id,
             submitted_at: s.submitted_at,
             data: (s.data ?? {}) as Record<string, unknown>,
+            rowIndex: typeof (s.metadata as { importRowIndex?: unknown } | null)?.importRowIndex === 'number'
+              ? ((s.metadata as { importRowIndex: number }).importRowIndex)
+              : null,
           })
         }
         if (!page || page.length < PAGE) break
@@ -177,6 +189,7 @@ export async function POST(request: Request) {
             .stream({
               model: 'claude-sonnet-4-5',
               max_tokens: 8192,
+              temperature: 0.2, // low randomness so the same question gets the same layout and order
               system: context.includes('PRE-COMPUTED COMBINED REPORT') ? BASE_PROMPT + COMBINED_REPORT_PROMPT : BASE_PROMPT,
               messages: anthropicMessages,
             })

@@ -87,7 +87,7 @@ async function importDataToExistingForm(
   const allRows = (job.preview_data ?? []) as Record<string, string>[]
   if (allRows.length === 0) return
 
-  const submissions = allRows.map(row => {
+  const submissions = allRows.map((row, rowIdx) => {
     const data: Record<string, unknown> = {}
     for (const [col, fieldId] of Object.entries(colToFieldId)) {
       data[fieldId] = row[col] ?? ''
@@ -103,7 +103,7 @@ async function importDataToExistingForm(
       submitted_at: rowSubmittedAt(row, submittedAt),
       submitted_by: userId,
       respondent_email: respondentEmail || null,
-      metadata: { importJobId: job.id, importedRow: true } as unknown as Json,
+      metadata: { importJobId: job.id, importedRow: true, importRowIndex: rowIdx } as unknown as Json,
     }
   })
 
@@ -181,7 +181,7 @@ async function createFormFromImport(
         ? new Date(periodStart).toISOString()
         : new Date().toISOString()
     const submittedAt = periodSubmittedAt
-    const submissions = allRows.map(row => {
+    const submissions = allRows.map((row, rowIdx) => {
       // Build data object: { fieldId: value } mapping
       const data: Record<string, unknown> = {}
       for (const [col, fieldId] of Object.entries(colToFieldId)) {
@@ -202,7 +202,7 @@ async function createFormFromImport(
         submitted_at: rowSubmittedAt(row, submittedAt),
         submitted_by: userId,
         respondent_email: respondentEmail || null,
-        metadata: { importJobId: job.id, importedRow: true } as unknown as Json,
+        metadata: { importJobId: job.id, importedRow: true, importRowIndex: rowIdx } as unknown as Json,
       }
     })
 
